@@ -1,26 +1,62 @@
 {% extends "base.html" %}
 {% block title %}{{ t.diagnostics }} · {{ t.app_name }}{% endblock %}
 {% block content %}
-<section class="hero compact">
-  <p class="eyebrow">{{ t.operations }}</p>
-  <h1>{{ t.diagnostics }}</h1>
-  <p class="muted">{{ t.diagnostics_intro }}</p>
-</section>
-
-<section class="card">
-  <h2>{{ t.self_checks }}</h2>
-  <div class="diagnostic-list">
-    {% for check in checks %}
-    <div class="diagnostic-row">
-      <span class="dot {{ 'ok' if check.ok else ('soft' if check.soft else 'bad') }}"></span>
-      <div><strong>{{ check.key }}</strong><small>{{ check.detail }}</small></div>
-    </div>
-    {% endfor %}
+<section class="hero diagnostics-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">{{ t.operations }} · fail closed, keep verified data</p>
+    <h1>{{ t.diagnostics }}</h1>
+    <p class="hero-intro">{{ t.diagnostics_intro }}</p>
+  </div>
+  <div class="diagnostic-stamp">
+    <svg class="icon"><use href="/static/icons.svg#shield"></use></svg>
+    <span>LAST KNOWN<br>GOOD</span>
   </div>
 </section>
 
-<section class="card">
-  <h2>{{ t.source_status }}</h2>
+<div class="diagnostics-grid">
+  <section class="ledger-card checks-card">
+    <div class="section-heading compact-heading">
+      <h2>{{ t.self_checks }}</h2>
+      <span class="source-badge official">{{ checks|length }} CHECKS</span>
+    </div>
+    <div class="diagnostic-list">
+      {% for check in checks %}
+      <div class="diagnostic-row">
+        <span class="dot {{ 'ok' if check.ok else ('soft' if check.soft else 'bad') }}"></span>
+        <div><strong>{{ check.key }}</strong><small>{{ check.detail }}</small></div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="ledger-card policy-card">
+    <div class="section-heading compact-heading">
+      <h2><svg class="icon"><use href="/static/icons.svg#shield"></use></svg>{{ t.policy_guard }}</h2>
+    </div>
+    <p class="small muted">{{ t.policy_guard_note }}</p>
+    {% if policies %}
+    <div class="policy-list">
+      {% for policy in policies %}
+      <div class="policy-row">
+        <div><strong>{{ policy.source_key }}</strong><small>{{ policy.detail or '—' }}</small></div>
+        <span class="pill {{ 'healthy' if policy.status == 'experimental_allowed' else 'degraded' }}">{{ policy.status }}</span>
+        <dl>
+          <div><dt>{{ t.reviewed_on }}</dt><dd>{{ policy.reviewed_on or '—' }}</dd></div>
+          <div><dt>{{ t.last_checked }}</dt><dd>{{ policy.last_checked_at or '—' }}</dd></div>
+        </dl>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">{{ t.not_collected_yet }}</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="ledger-card source-table-card">
+  <div class="section-heading compact-heading">
+    <h2><svg class="icon"><use href="/static/icons.svg#database"></use></svg>{{ t.source_status }}</h2>
+  </div>
   {% if sources %}
   <div class="table-wrap">
     <table>
@@ -28,8 +64,8 @@
       <tbody>
       {% for source in sources %}
       <tr>
-        <td>{{ source.source_key }}</td>
-        <td><span class="pill {{ source.state }}">{{ source.state }}</span></td>
+        <td><code>{{ source.source_key }}</code></td>
+        <td><span class="pill {{ 'healthy' if source.state == 'healthy' else 'degraded' }}">{{ source.state }}</span></td>
         <td>{{ source.last_success_at or '—' }}</td>
         <td>{{ source.consecutive_failures }}</td>
         <td class="error-cell">{{ source.last_error or '—' }}</td>
@@ -43,8 +79,36 @@
   {% endif %}
 </section>
 
-<section class="notice">
-  <p><strong>{{ t.daily_collection }}:</strong> <code>python -m app.cli daily</code></p>
-  <p class="small">{{ t.daily_collection_note }}</p>
+<section class="ledger-card jobs-card">
+  <div class="section-heading compact-heading">
+    <h2><svg class="icon"><use href="/static/icons.svg#diagnostics"></use></svg>{{ t.recent_jobs }}</h2>
+  </div>
+  {% if jobs %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t.job }}</th><th>{{ t.state }}</th><th>{{ t.started }}</th><th>{{ t.finished }}</th><th>{{ t.detail }}</th></tr></thead>
+      <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td><code>{{ job.job_name }}</code></td>
+        <td><span class="pill {{ 'healthy' if job.state == 'success' else 'degraded' }}">{{ job.state }}</span></td>
+        <td>{{ job.started_at }}</td>
+        <td>{{ job.finished_at or '—' }}</td>
+        <td class="error-cell">{{ job.detail or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">{{ t.not_collected_yet }}</p>
+  {% endif %}
+</section>
+
+<section class="command-strip">
+  <div><span>{{ t.daily_collection }}</span><code>python -m app.cli daily</code></div>
+  <div><span>KSH local</span><code>python -m app.cli collect-local</code></div>
+  <div><span>Duna House probe</span><code>python -m app.cli probe-dh</code></div>
+  <p>{{ t.daily_collection_note }}</p>
 </section>
 {% endblock %}
