@@ -1,0 +1,31 @@
+name: Source contract check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '27 4 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  live-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -e .
+      - name: Prepare local reference database
+        run: python -m app.cli seed
+      - name: Check live KSH price contract
+        run: python -m app.cli collect-market
+      - name: Check live KSH transaction-count contract
+        run: python -m app.cli collect-counts
+      - name: Check live MNB exchange-rate contract
+        run: python -m app.cli collect-fx
+      - name: Run resulting self-checks
+        run: python -m app.cli self-check
