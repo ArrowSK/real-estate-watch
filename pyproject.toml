@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "real-estate-watch"
-version = "0.1.0"
-description = "Lightweight real-estate market and mortgage monitoring, starting with Hungary."
+version = "0.2.0"
+description = "Evidence-led real-estate market, valuation and mortgage monitoring, starting with Hungary."
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -33,7 +33,13 @@ dev = [
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["templates/*.html", "static/*.css", "static/*.js", "countries/hu/data/*.json"]
+app = [
+  "templates/*.html",
+  "static/*.css",
+  "static/*.js",
+  "static/*.svg",
+  "countries/hu/data/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -44,6 +50,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 # Keep CI focused on correctness. FastAPI intentionally uses Depends/Form calls in
-# signatures and the collectors intentionally catch boundary errors so they can retain
+# signatures and collectors intentionally catch boundary errors so they can retain
 # last known-good data; opinionated rules for those patterns add noise rather than safety.
 select = ["E4", "E7", "E9", "F"]
