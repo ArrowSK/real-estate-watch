@@ -10,6 +10,22 @@ from app.services.duna_house import asking_market_series, latest_asking_market
 from app.services.ksh_local import latest_local_benchmark
 from app.services.market import latest_market, market_series
 
+LOCAL_PROPERTY_MAP = {
+    "all": "all",
+    "apartment": "condominium",
+    "house": "house",
+    "panel": "panel",
+}
+ASKING_PROPERTY_MAP = {
+    "all": "all",
+    "apartment": "apartment",
+    "house": "house",
+    # The current factual Duna House parser cannot safely distinguish panel construction from
+    # other apartments. Panel keeps its KSH local benchmark but uses the broader apartment
+    # asking subset when one exists, and the UI labels that scope explicitly.
+    "panel": "apartment",
+}
+
 
 @dataclass(frozen=True)
 class TransactionNowcast:
@@ -30,6 +46,7 @@ class TransactionNowcast:
 class MarketComparison:
     official: TransactionNowcast | None
     asking: AskingMarketSnapshot | None
+    asking_scope: str
     asking_gap_pct: float | None
     official_6m_change_pct: float | None
     asking_30d_change_pct: float | None
@@ -57,16 +74,17 @@ def transaction_nowcast(
 
     Budapest district/street values use the latest annual Ingatlanadattár benchmark, then move
     it forward by the change in the Budapest quarterly transaction series since the last
-    quarter of that local benchmark year. No Duna House asking price is folded into this value.
+    quarter of that local benchmark year. No asking price is folded into this value.
     """
+    local_type = LOCAL_PROPERTY_MAP.get(property_type, "all")
     local: LocalBenchmark | None = None
     if area_code.startswith("BUDAPEST_"):
-        local = latest_local_benchmark(db, area_code, property_type, street=street)
-        if local is None and property_type != "all":
+        local = latest_local_benchmark(db, area_code, local_type, street=street)
+        if local is None and local_type != "all":
             local = latest_local_benchmark(db, area_code, "all", street=street)
         if local is None and street:
-            local = latest_local_benchmark(db, area_code, property_type, street=None)
-        if local is None and property_type != "all":
+            local = latest_local_benchmark(db, area_code, local_type, street=None)
+        if local is None and local_type != "all":
             local = latest_local_benchmark(db, area_code, "all", street=None)
 
     if local is not None:
@@ -145,10 +163,12 @@ def market_comparison(
     street: str | None = None,
 ) -> MarketComparison:
     official = transaction_nowcast(db, area_code, market_segment, property_type, street)
-    asking = latest_asking_market(db, area_code, property_type, market_segment)
-    # District/property-specific observed data may not yet have reached the minimum sample.
-    if asking is None and property_type != "all":
+    asking_type = ASKING_PROPERTY_MAP.get(property_type, "all")
+    asking = latest_asking_market(db, area_code, asking_type, market_segment)
+    asking_scope = asking_type
+    if asking is None and asking_type != "all":
         asking = latest_asking_market(db, area_code, "all", market_segment)
+        asking_scope = "all"
     gap = (
         _change(asking.median_huf_m2, official.value_huf_m2)
         if asking is not None and official is not None
@@ -157,12 +177,12 @@ def market_comparison(
     return MarketComparison(
         official=official,
         asking=asking,
+        asking_scope=asking_scope,
         asking_gap_pct=gap,
         official_6m_change_pct=_official_6m_change(db, area_code, market_segment),
-        asking_30d_change_pct=_asking_30d_change(
-            db,
-            area_code,
-            property_type if asking is not None else "all",
-            market_segment,
+        asking_30d_change_pct=(
+            _asking_30d_change(db, area_code, asking_scope, market_segment)
+            if asking is not None
+            else None
         ),
     )
