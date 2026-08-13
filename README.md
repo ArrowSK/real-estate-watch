@@ -6,7 +6,7 @@ The interface is bilingual. English is the default; Hungarian can be selected fr
 
 ## What works in the first release
 
-- Hungary and Budapest market views.
+- Budapest, broad Hungarian statistical regions and the national market view.
 - Separate second-hand and new-build transaction benchmarks.
 - Historical HUF/m² chart using official KSH quarterly data.
 - HUF as the main currency, with smaller EUR and USD comparison values after the MNB FX collector has run.
@@ -29,11 +29,17 @@ Two parts of the full product are not yet presented as complete:
 
 This distinction is intentional. A stale or invented financial number is worse than a clearly marked missing feature.
 
+Personal saved watchlists are also not exposed in the public web UI yet. The first release can notify on changes in the supported benchmark series. Persistent per-user watchlists need an authentication and ownership model before a public deployment should accept them.
+
+The implementation sequence and remaining data-source decisions are documented in [ROADMAP.md](ROADMAP.md).
+
 ## Market data included with the application
 
-The repository contains a small KSH reference dataset so that the application is useful immediately after first start, even if the live KSH page is temporarily unavailable. It covers Hungary and Budapest, second-hand and new dwellings, through 2026 Q1 where the corresponding KSH series is available.
+The repository contains source-attributed KSH reference data so that the application is useful immediately after first start, even if the live KSH page is temporarily unavailable. The fallback covers Budapest and the national series through 2026 Q1, plus the latest available regional observations. Missing KSH values remain missing; the app does not interpolate them.
 
-The daily collector then attempts to refresh the official KSH table and the current MNB EUR/HUF and USD/HUF rates. Verified observations are stored in the database. If a source fails, the application keeps the last known-good observation and marks the source as degraded in Diagnostics.
+The daily collector then attempts to refresh the official KSH table and the current MNB EUR/HUF and USD/HUF rates. Verified observations are stored in the database. Live KSH values can revise preliminary quarters. Bundled fallback data only fill missing rows and never overwrite a value already collected from KSH.
+
+If a source fails, the application keeps the last known-good observation and marks the source as degraded in Diagnostics.
 
 Official sources used by the Hungary module:
 
@@ -128,7 +134,7 @@ Important variables:
 | `APP_DEFAULT_LANGUAGE` | `en` or `hu`; also controls notification language |
 | `APP_TIMEZONE` | Local scheduler timezone; defaults to `Europe/Budapest` |
 | `SOURCE_STALE_HOURS` | Marks an attempted source stale when its last successful refresh is older than this |
-| `SELF_HEAL_ENABLED` | Restores bundled reference data if the market table is empty |
+| `SELF_HEAL_ENABLED` | Restores missing bundled reference rows without overwriting live data |
 | `NOTIFY_WEBHOOK_URL` | Optional generic webhook |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram notification channel |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `NOTIFY_EMAIL_TO` | Optional STARTTLS email channel |
@@ -150,12 +156,12 @@ The application is designed to fail conservatively.
 - The KSH parser supports a deliberately narrow set of table rows. If the table structure changes enough that those rows cannot be identified, the collector fails and keeps the previous data instead of guessing column meanings.
 - Daily jobs use a database job record to avoid overlapping runs. A lock left behind by a crashed job is marked abandoned after two hours.
 - Configured webhook, Telegram and email channels receive a notice when a tracked KSH series moves past the configured threshold or advances to a new quarter, and when a live source degrades.
-- If the market table is empty, the self-healer restores the bundled, source-attributed KSH reference data.
+- The self-healer restores only missing bundled KSH reference rows. A regression test explicitly verifies that an existing live/revised KSH value cannot be replaced by an older bundled fallback.
 - `/health/live` checks that the process is alive.
 - `/health/ready` checks the database and minimum reference data. Optional live sources may be degraded without taking the whole site offline.
 - `/diagnostics` shows source failures, freshness and the last successful refresh.
 
-"Self-healing" here means retrying transient failures, restoring known-safe local reference state and continuing from last known-good data. It does **not** mean modifying application code automatically or accepting unverified external values.
+"Self-healing" here means retrying transient failures, restoring known-safe missing reference state and continuing from last known-good data. It does **not** mean modifying application code automatically or accepting unverified external values.
 
 ## Mortgage calculations
 
@@ -233,7 +239,7 @@ ruff check app tests
 pytest -q
 ```
 
-GitHub Actions runs the same Python checks and builds the Docker image for every push and pull request.
+GitHub Actions runs the same Python checks, CLI self-check and a booted-container readiness smoke test for every push and pull request.
 
 ## Public-repository safety
 
