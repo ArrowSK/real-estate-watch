@@ -1,10 +1,31 @@
+x-app-environment: &app-environment
+  APP_ENV: production
+  DATABASE_URL: postgresql+psycopg://realestate:${POSTGRES_PASSWORD:-change-me}@db:5432/realestate
+  APP_DEFAULT_LANGUAGE: ${APP_DEFAULT_LANGUAGE:-en}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Budapest}
+  APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+  HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-20}
+  SOURCE_STALE_HOURS: ${SOURCE_STALE_HOURS:-36}
+  SELF_HEAL_ENABLED: ${SELF_HEAL_ENABLED:-true}
+  MARKET_NOTIFY_CHANGE_PERCENT: ${MARKET_NOTIFY_CHANGE_PERCENT:-1.0}
+  NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  NOTIFY_EMAIL_TO: ${NOTIFY_EMAIL_TO:-}
+  ADMIN_KEY: ${ADMIN_KEY:-}
+
 services:
   db:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: realestate
       POSTGRES_USER: realestate
-      POSTGRES_PASSWORD: change-me
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     volumes:
       - realestate-db:/var/lib/postgresql/data
     healthcheck:
@@ -17,12 +38,7 @@ services:
     build: .
     ports:
       - "8000:8000"
-    environment:
-      APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://realestate:change-me@db:5432/realestate
-      APP_DEFAULT_LANGUAGE: en
-      APP_TIMEZONE: Europe/Budapest
-      SELF_HEAL_ENABLED: "true"
+    environment: *app-environment
     depends_on:
       db:
         condition: service_healthy
@@ -31,11 +47,7 @@ services:
   scheduler:
     build: .
     command: ["python", "-m", "app.scheduler"]
-    environment:
-      APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://realestate:change-me@db:5432/realestate
-      APP_TIMEZONE: Europe/Budapest
-      SELF_HEAL_ENABLED: "true"
+    environment: *app-environment
     depends_on:
       db:
         condition: service_healthy
