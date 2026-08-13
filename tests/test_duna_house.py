@@ -10,7 +10,7 @@ ROBOTS = """User-agent: *
     Allow: /
 
     Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_content
-    Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties
+        Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties
 """
 
 SITEMAP = """<?xml version="1.0" encoding="UTF-8"?>

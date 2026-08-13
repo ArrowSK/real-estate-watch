@@ -101,9 +101,9 @@ def _robots_contract(robots_text: str, sitemap_url: str) -> tuple[bool, list[str
     # its Sitemap lines, so strip each line before inspecting the directive name.
     normalized_lines = [line.strip() for line in robots_text.splitlines()]
     sitemaps = [
-        line.split(":", 1)[1].strip()
+        line.strip().split(":", 1)[1].strip()
         for line in normalized_lines
-        if line.lower().startswith("sitemap:")
+        if line.strip().lower().startswith("sitemap:")
     ]
     normalized = {canonical_url(item) for item in sitemaps}
     return allowed and canonical_url(sitemap_url) in normalized, sitemaps
