@@ -80,26 +80,43 @@ def _as_number(value) -> float | None:
 def parse_ksh_local_json(payload: object, *, include_streets: bool = True) -> list[dict]:
     """Normalize Budapest records from KSH Ingatlanadattár's official client JSON.
 
-    The source currently uses hierarchy level 3 for district totals and level 2 for street
-    observations. Missing property-type fields stay missing. Prices are published in thousand
-    HUF/m² and are converted to HUF/m² here.
+    The source currently uses hierarchy level 1 for Budapest totals, level 3 for district
+    totals and level 2 for street observations. Missing property-type fields stay missing.
+    Prices are published in thousand HUF/m² and are converted to HUF/m² here.
     """
     if not isinstance(payload, list):
         raise ValueError("KSH Ingatlanadattár JSON root is not a list")
 
     output: list[dict] = []
     seen_district_totals: set[str] = set()
+    seen_city_total = False
+    allowed_levels = {1, 3, 2} if include_streets else {1, 3}
     for raw in payload:
         if not isinstance(raw, dict) or str(raw.get("megye")) != "01":
             continue
         level = raw.get("szint")
-        if level not in ({2, 3} if include_streets else {3}):
+        if level not in allowed_levels:
             continue
+
         territory_id = str(raw.get("telaz") or "")
-        descriptor = _district_descriptor(territory_id)
-        if descriptor is None:
-            continue
-        area_code, area_name = descriptor
+        if level == 1:
+            # The Budapest city total uses the source's county/capital identifier 01.
+            if territory_id != "01":
+                continue
+            area_code, area_name, street_name = "BUDAPEST", "Budapest", None
+            seen_city_total = True
+        else:
+            descriptor = _district_descriptor(territory_id)
+            if descriptor is None:
+                continue
+            area_code, area_name = descriptor
+            if level == 3:
+                street_name = None
+                seen_district_totals.add(area_code)
+            else:
+                street_name = str(raw.get("kozter") or "").strip() or None
+                if not street_name or street_name.casefold() == "együtt":
+                    continue
 
         year_value = _as_number(raw.get("ev"))
         if year_value is None:
@@ -107,14 +124,6 @@ def parse_ksh_local_json(payload: object, *, include_streets: bool = True) -> li
         year = int(year_value)
         if year < 1997 or year > datetime.now(timezone.utc).year:
             raise ValueError(f"KSH local observation year outside safety range: {year}")
-
-        if level == 3:
-            street_name = None
-            seen_district_totals.add(area_code)
-        else:
-            street_name = str(raw.get("kozter") or "").strip() or None
-            if not street_name or street_name.casefold() == "együtt":
-                continue
 
         relative_std = _as_number(raw.get("szoras"))
         for property_type, (price_field, count_field) in PROPERTY_FIELDS.items():
@@ -144,6 +153,8 @@ def parse_ksh_local_json(payload: object, *, include_streets: bool = True) -> li
 
     if not output:
         raise ValueError("KSH Ingatlanadattár JSON contained no supported Budapest observations")
+    if not seen_city_total:
+        raise ValueError("KSH granular JSON is missing Budapest city totals")
     missing = {f"BUDAPEST_{district:02d}" for district in range(1, 24)} - seen_district_totals
     if missing:
         raise ValueError(
@@ -236,8 +247,16 @@ def refresh_ksh_local(db: Session, *, include_streets: bool = True, force: bool 
 
         inserted, updated = _upsert_many(db, rows)
         years = sorted({row["year"] for row in rows})
-        districts = {row["area_code"] for row in rows if row["street_key"] == ""}
-        streets = {f'{row["area_code"]}|{row["street_key"]}' for row in rows if row["street_key"]}
+        districts = {
+            row["area_code"]
+            for row in rows
+            if row["street_key"] == "" and row["area_code"].startswith("BUDAPEST_")
+        }
+        streets = {
+            f'{row["area_code"]}|{row["street_key"]}'
+            for row in rows
+            if row["street_key"]
+        }
         mark_success(
             db,
             KSH_LOCAL_SOURCE_KEY,
@@ -271,6 +290,7 @@ def latest_local_benchmark(
     area_code: str,
     property_type: str = "all",
     street: str | None = None,
+    year: int | None = None,
 ) -> LocalBenchmark | None:
     query = select(LocalBenchmark).where(
         LocalBenchmark.source_key == KSH_LOCAL_SOURCE_KEY,
@@ -279,6 +299,8 @@ def latest_local_benchmark(
         LocalBenchmark.status == "verified",
         LocalBenchmark.street_key == street_key(street),
     )
+    if year is not None:
+        query = query.where(LocalBenchmark.year == year)
     return db.scalar(query.order_by(LocalBenchmark.year.desc()).limit(1))
 
 
