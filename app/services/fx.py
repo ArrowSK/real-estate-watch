@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import date, datetime
 from xml.etree import ElementTree as ET
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import FxSnapshot
+from app.services.http import request_with_retry
 from app.services.source_health import mark_failure, mark_success
 
 MNB_FX_SOURCE_KEY = "mnb_fx"
@@ -81,9 +81,13 @@ def refresh_mnb_fx(db: Session) -> dict:
         "User-Agent": "real-estate-watch/0.1",
     }
     try:
-        with httpx.Client(timeout=settings.http_timeout_seconds, follow_redirects=True) as client:
-            response = client.post(settings.mnb_fx_url, content=SOAP_ENVELOPE.encode(), headers=headers)
-            response.raise_for_status()
+        response = request_with_retry(
+            "POST",
+            settings.mnb_fx_url,
+            timeout=settings.http_timeout_seconds,
+            content=SOAP_ENVELOPE.encode(),
+            headers=headers,
+        )
         rate_date, rates = parse_mnb_current_rates(response.text)
         for currency, value in rates.items():
             validate_rate(currency, value, previous.get(currency).huf_per_unit if currency in previous else None)
