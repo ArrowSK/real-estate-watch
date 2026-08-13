@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     admin_key: str | None = None
 
     ksh_market_url: str = "https://www.ksh.hu/stadat_files/lak/en/lak0052.html"
+    ksh_transactions_url: str = "https://www.ksh.hu/stadat_files/lak/en/lak0053.html"
     mnb_fx_url: str = "https://www.mnb.hu/arfolyamok.asmx"
 
     def sqlalchemy_url(self) -> str:
