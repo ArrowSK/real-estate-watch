@@ -115,7 +115,10 @@ def run_daily_collection(db: Session) -> dict:
                     ),
                 },
             )
-        job.state = "degraded" if result["degraded"] else "success"
+        # Core KSH/MNB failure is a failed collection job. A failure of the granular or
+        # experimental asking layer is degraded-but-usable because last known-good official
+        # transaction data can still be served.
+        job.state = "failed" if not result["ok"] else ("degraded" if result["degraded"] else "success")
         job.detail = str({k: v for k, v in result.items() if k not in {"checks"}})[:4000]
     except Exception as exc:
         db.rollback()
