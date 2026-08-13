@@ -46,15 +46,17 @@ The price and count sources have separate health records. A count-source failure
 
 ## MNB exchange rates
 
-Source: Magyar Nemzeti Bank exchange-rate SOAP service.
+Source: Magyar Nemzeti Bank, latest official exchange-rates page.
 
-`https://www.mnb.hu/arfolyamok.asmx`
+`https://www.mnb.hu/arfolyamok`
 
-The collector retrieves current EUR and USD rates expressed in HUF. HUF remains the primary display currency. EUR and USD are smaller comparison values only.
+The collector retrieves the published EUR and USD rates expressed in HUF, together with the fixing date printed by MNB. HUF remains the primary display currency. EUR and USD are smaller comparison values only.
 
-The app stores the rate date together with each observation. Historical HUF market observations are not rewritten merely because today's FX rate changed.
+MNB also documents a SOAP web service for current and historic rates. The project's first live contract check in August 2026 found that the documented public `arfolyamok.asmx` POST route returned HTTP 404 from GitHub Actions. Rather than hide that failure or depend on an undocumented routing workaround, the application uses MNB's public latest-official-rates page for the two rates needed by the dashboard. The daily source-contract workflow checks that parser against MNB directly.
 
-Safety checks reject unsupported currencies, values outside a broad plausible range and a one-step change greater than 15% from the previous stored observation. A rejected rate leaves the previous verified rate in place.
+The app stores the MNB fixing date together with each observation. Historical HUF market observations are not rewritten merely because today's FX rate changed.
+
+Safety checks reject unsupported currencies, values outside a broad plausible range, a one-step change greater than 15% from the previous stored observation, a future fixing date, or a purported latest fixing more than ten days old. A rejected response leaves the previous verified rate in place and marks the source degraded.
 
 ## MNB debt-brake rules
 
