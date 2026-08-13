@@ -9,6 +9,7 @@ on:
       - '.github/workflows/source-contract.yml'
       - 'app/services/duna_house.py'
       - 'app/services/live_intelligence.py'
+      - 'app/services/health.py'
       - 'app/services/ksh_local.py'
       - 'app/services/market.py'
       - 'app/services/transaction_counts.py'
