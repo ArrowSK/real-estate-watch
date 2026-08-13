@@ -2,7 +2,25 @@ from app.services.ksh_local import BUDAPEST_DISTRICTS, parse_ksh_local_json, str
 
 
 def fixture_rows() -> list[dict]:
-    rows: list[dict] = []
+    rows: list[dict] = [
+        {
+            "megye": "01",
+            "telaz": "01",
+            "szint": 1,
+            "kozter": "együtt",
+            "ev": 2024,
+            "cshaz_ar": 900,
+            "cshaz_db": 900,
+            "tobbl_ar": 1200,
+            "tobbl_db": 9000,
+            "panel_ar": 1050,
+            "panel_db": 3000,
+            "total_ar": 1100,
+            "total_db": 13000,
+            "szoras": 50,
+            "idosor": 1,
+        }
+    ]
     for territory_id, district in BUDAPEST_DISTRICTS.items():
         rows.append(
             {
@@ -41,8 +59,17 @@ def fixture_rows() -> list[dict]:
     return rows
 
 
-def test_parse_ksh_json_maps_all_budapest_district_totals():
+def test_parse_ksh_json_maps_city_and_all_budapest_district_totals():
     rows = parse_ksh_local_json(fixture_rows())
+    city = [row for row in rows if row["area_code"] == "BUDAPEST" and not row["street_name"]]
+    assert {row["property_type"] for row in city} == {
+        "house",
+        "condominium",
+        "panel",
+        "all",
+    }
+    assert next(row for row in city if row["property_type"] == "all")["mean_huf_m2"] == 1_100_000
+
     district_rows = [
         row for row in rows if row["area_code"] == "BUDAPEST_06" and not row["street_name"]
     ]
@@ -70,9 +97,9 @@ def test_parse_ksh_json_preserves_street_missing_categories():
     assert condo["transaction_count"] == 44
 
 
-def test_parse_ksh_json_can_skip_streets_but_keeps_all_districts():
+def test_parse_ksh_json_can_skip_streets_but_keeps_city_and_all_districts():
     rows = parse_ksh_local_json(fixture_rows(), include_streets=False)
     assert not any(row["street_name"] for row in rows)
-    assert {row["area_code"] for row in rows} == {
-        f"BUDAPEST_{district:02d}" for district in range(1, 24)
-    }
+    area_codes = {row["area_code"] for row in rows}
+    assert "BUDAPEST" in area_codes
+    assert {f"BUDAPEST_{district:02d}" for district in range(1, 24)}.issubset(area_codes)
