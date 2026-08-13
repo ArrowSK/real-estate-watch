@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.models import AskingMarketSnapshot, LocalBenchmark, MarketSnapshot
+from app.models import AskingMarketSnapshot, LocalBenchmark
 from app.services.duna_house import asking_market_series, latest_asking_market
 from app.services.ksh_local import latest_local_benchmark
 from app.services.market import latest_market, market_series
@@ -31,8 +30,9 @@ ASKING_PROPERTY_MAP = {
 class TransactionNowcast:
     value_huf_m2: float
     local_base_huf_m2: float
+    city_reference_huf_m2: float | None
     local_year: int | None
-    trend_factor: float
+    local_factor: float
     geography: str
     property_type: str
     street_name: str | None
@@ -58,9 +58,27 @@ def _change(current: float | None, previous: float | None) -> float | None:
     return (current / previous - 1) * 100
 
 
-def _quarter_row_at_or_before(rows: list[MarketSnapshot], cutoff: date) -> MarketSnapshot | None:
-    candidates = [row for row in rows if row.observation_date <= cutoff]
-    return candidates[-1] if candidates else None
+def _local_candidate(
+    db: Session,
+    area_code: str,
+    requested_type: str,
+    street: str | None,
+) -> LocalBenchmark | None:
+    """Return the finest compatible local row without crossing property classes silently."""
+    if street:
+        exact = latest_local_benchmark(db, area_code, requested_type, street=street)
+        if exact is not None:
+            return exact
+        if requested_type != "all":
+            all_street = latest_local_benchmark(db, area_code, "all", street=street)
+            if all_street is not None:
+                return all_street
+    exact_district = latest_local_benchmark(db, area_code, requested_type)
+    if exact_district is not None:
+        return exact_district
+    if requested_type != "all":
+        return latest_local_benchmark(db, area_code, "all")
+    return None
 
 
 def transaction_nowcast(
@@ -70,56 +88,56 @@ def transaction_nowcast(
     property_type: str = "all",
     street: str | None = None,
 ) -> TransactionNowcast | None:
-    """Build a transparent transaction-value nowcast from official KSH observations.
+    """Build an inspectable current transaction-value benchmark.
 
-    Budapest district/street values use the latest annual Ingatlanadattár benchmark, then move
-    it forward by the change in the Budapest quarterly transaction series since the last
-    quarter of that local benchmark year. No asking price is folded into this value.
+    KSH Ingatlanadattár is annual and is not split into new/second-hand in the source used here.
+    For second-hand Budapest district/street estimates only, its local/property-type value is
+    converted into a factor relative to the same-year Budapest all-dwelling value, then applied
+    to the latest quarterly Budapest second-hand benchmark. New-build estimates therefore stay
+    on the directly published quarterly series rather than pretending the granular source has a
+    segment split it does not publish.
     """
-    local_type = LOCAL_PROPERTY_MAP.get(property_type, "all")
-    local: LocalBenchmark | None = None
-    if area_code.startswith("BUDAPEST_"):
-        local = latest_local_benchmark(db, area_code, local_type, street=street)
-        if local is None and local_type != "all":
-            local = latest_local_benchmark(db, area_code, "all", street=street)
-        if local is None and street:
-            local = latest_local_benchmark(db, area_code, local_type, street=None)
-        if local is None and local_type != "all":
-            local = latest_local_benchmark(db, area_code, "all", street=None)
-
-    if local is not None:
-        city_rows = market_series(db, "BUDAPEST", market_segment)
-        latest_city = city_rows[-1] if city_rows else None
-        base_city = _quarter_row_at_or_before(city_rows, date(local.year, 12, 31))
-        factor = (
-            latest_city.price_huf_m2 / base_city.price_huf_m2
-            if latest_city and base_city and base_city.price_huf_m2
-            else 1.0
-        )
-        return TransactionNowcast(
-            value_huf_m2=local.mean_huf_m2 * factor,
-            local_base_huf_m2=local.mean_huf_m2,
-            local_year=local.year,
-            trend_factor=factor,
-            geography=local.area_name,
-            property_type=local.property_type,
-            street_name=local.street_name,
-            sample_size=local.transaction_count,
-            relative_std_pct=local.relative_std_pct,
-            source_url=local.source_url,
-            method="annual local KSH benchmark × subsequent Budapest quarterly transaction movement",
-        )
-
-    direct = latest_market(db, area_code, market_segment)
-    if direct is None and area_code.startswith("BUDAPEST_"):
-        direct = latest_market(db, "BUDAPEST", market_segment)
+    direct_area = "BUDAPEST" if area_code.startswith("BUDAPEST_") else area_code
+    direct = latest_market(db, direct_area, market_segment)
     if direct is None:
         return None
+
+    if market_segment == "second_hand" and area_code.startswith("BUDAPEST_"):
+        requested_type = LOCAL_PROPERTY_MAP.get(property_type, "all")
+        local = _local_candidate(db, area_code, requested_type, street)
+        if local is not None:
+            city_reference = latest_local_benchmark(
+                db,
+                "BUDAPEST",
+                "all",
+                year=local.year,
+            )
+            if city_reference is not None and city_reference.mean_huf_m2 > 0:
+                factor = local.mean_huf_m2 / city_reference.mean_huf_m2
+                return TransactionNowcast(
+                    value_huf_m2=direct.price_huf_m2 * factor,
+                    local_base_huf_m2=local.mean_huf_m2,
+                    city_reference_huf_m2=city_reference.mean_huf_m2,
+                    local_year=local.year,
+                    local_factor=factor,
+                    geography=local.area_name,
+                    property_type=local.property_type,
+                    street_name=local.street_name,
+                    sample_size=local.transaction_count,
+                    relative_std_pct=local.relative_std_pct,
+                    source_url=local.source_url,
+                    method=(
+                        "latest Budapest second-hand KSH mean × local/property-type factor "
+                        "from same-year KSH Ingatlanadattár"
+                    ),
+                )
+
     return TransactionNowcast(
         value_huf_m2=direct.price_huf_m2,
         local_base_huf_m2=direct.price_huf_m2,
+        city_reference_huf_m2=None,
         local_year=None,
-        trend_factor=1.0,
+        local_factor=1.0,
         geography=direct.area_name_en,
         property_type="all",
         street_name=None,
