@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: realestate
+      POSTGRES_USER: realestate
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - realestate-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realestate -d realestate"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://realestate:change-me@db:5432/realestate
+      APP_DEFAULT_LANGUAGE: en
+      APP_TIMEZONE: Europe/Budapest
+      SELF_HEAL_ENABLED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    command: ["python", "-m", "app.scheduler"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://realestate:change-me@db:5432/realestate
+      APP_TIMEZONE: Europe/Budapest
+      SELF_HEAL_ENABLED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["scheduler"]
+
+volumes:
+  realestate-db:
