@@ -9,7 +9,8 @@ The interface is bilingual. English is the default; Hungarian can be selected fr
 - Budapest, broad Hungarian statistical regions and the national market view.
 - Separate second-hand and new-build transaction benchmarks.
 - Historical HUF/m² chart using official KSH quarterly data.
-- HUF as the main currency, with smaller EUR and USD comparison values after the MNB FX collector has run.
+- Official KSH transaction counts attached to matching price observations after a live refresh.
+- HUF as the main currency, with smaller EUR and USD comparison values from the latest official MNB rates.
 - A property valuation worksheet with explicit, visible adjustment assumptions.
 - A Hungarian mortgage calculator with annuity payments, total interest and +1/+2/+3 percentage-point stress tests.
 - Indicative MNB HFM/JTM debt-brake checks using the current 2026 thresholds.
@@ -18,6 +19,7 @@ The interface is bilingual. English is the default; Hungarian can be selected fr
 - Daily collection command and a low-overhead local scheduler.
 - Optional notifications through a generic webhook, Telegram and SMTP email.
 - Source diagnostics, readiness/liveness endpoints, source-freshness checks, bounded retry, last-known-good fallbacks and data sanity checks.
+- A scheduled GitHub Actions source-contract check that verifies the live KSH and MNB parsers independently of a deployment.
 - English and Hungarian UI.
 
 ## What is deliberately not faked
@@ -37,14 +39,15 @@ The implementation sequence and remaining data-source decisions are documented i
 
 The repository contains source-attributed KSH reference data so that the application is useful immediately after first start, even if the live KSH page is temporarily unavailable. The fallback covers Budapest and the national series through 2026 Q1, plus the latest available regional observations. Missing KSH values remain missing; the app does not interpolate them.
 
-The daily collector then attempts to refresh the official KSH table and the current MNB EUR/HUF and USD/HUF rates. Verified observations are stored in the database. Live KSH values can revise preliminary quarters. Bundled fallback data only fill missing rows and never overwrite a value already collected from KSH.
+The daily collector then attempts to refresh the official KSH price and transaction-count tables and the latest official MNB EUR/HUF and USD/HUF rates. Verified observations are stored in the database. Live KSH values can revise preliminary quarters. Bundled fallback data only fill missing rows and never overwrite a value already collected from KSH.
 
 If a source fails, the application keeps the last known-good observation and marks the source as degraded in Diagnostics.
 
 Official sources used by the Hungary module:
 
 - KSH STADAT 18.2.2.14, mean price per m² by region and settlement type: `https://www.ksh.hu/stadat_files/lak/en/lak0052.html`
-- MNB exchange-rate web service: `https://www.mnb.hu/arfolyamok.asmx`
+- KSH STADAT 18.2.2.15, number of housing transactions by region and settlement type: `https://www.ksh.hu/stadat_files/lak/en/lak0053.html`
+- MNB latest official exchange rates: `https://www.mnb.hu/arfolyamok`
 - MNB HFM/JTM debt-brake rules: `https://www.mnb.hu/penzugyi-stabilitas/makroprudencialis-politika/makroprudencialis-eszkoztar/adossagfek-szabalyok-hfm-jtm`
 - NAV transfer-tax rates: `https://nav.gov.hu/ugyfeliranytu/adokulcsok_jarulekmertekek/illetekmertekek/visszterhes-vagyonatruhazasi-illetek`
 
@@ -152,7 +155,7 @@ The application is designed to fail conservatively.
 - Database operations use transactions. A failed collection is rolled back before source health is updated.
 - Clearly transient network errors and HTTP 408/425/429/5xx responses receive a small bounded retry with backoff before a source is marked degraded.
 - Market and FX values pass sanity ranges before they can replace a stored observation.
-- FX movements above 15% from the last stored rate are rejected rather than silently accepted.
+- FX movements above 15% from the last stored rate are rejected rather than silently accepted, and a purported latest MNB fixing older than ten days is rejected.
 - The KSH parser supports a deliberately narrow set of table rows. If the table structure changes enough that those rows cannot be identified, the collector fails and keeps the previous data instead of guessing column meanings.
 - Daily jobs use a database job record to avoid overlapping runs. A lock left behind by a crashed job is marked abandoned after two hours.
 - Configured webhook, Telegram and email channels receive a notice when a tracked KSH series moves past the configured threshold or advances to a new quarter, and when a live source degrades.
@@ -160,6 +163,7 @@ The application is designed to fail conservatively.
 - `/health/live` checks that the process is alive.
 - `/health/ready` checks the database and minimum reference data. Optional live sources may be degraded without taking the whole site offline.
 - `/diagnostics` shows source failures, freshness and the last successful refresh.
+- `.github/workflows/source-contract.yml` exercises the live KSH price, KSH transaction-count and MNB FX contracts every day so an upstream page change can be seen even when no application deployment is running.
 
 "Self-healing" here means retrying transient failures, restoring known-safe missing reference state and continuing from last known-good data. It does **not** mean modifying application code automatically or accepting unverified external values.
 
@@ -205,6 +209,7 @@ CLI operations:
 ```bash
 python -m app.cli seed
 python -m app.cli collect-market
+python -m app.cli collect-counts
 python -m app.cli collect-fx
 python -m app.cli daily
 python -m app.cli self-check
@@ -239,7 +244,7 @@ ruff check app tests
 pytest -q
 ```
 
-GitHub Actions runs the same Python checks, CLI self-check and a booted-container readiness smoke test for every push and pull request.
+GitHub Actions runs the same Python checks, CLI self-check and a booted-container readiness smoke test for every push and pull request. A second scheduled workflow checks the live source contracts once per day.
 
 ## Public-repository safety
 
