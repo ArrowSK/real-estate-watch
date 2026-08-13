@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "real-estate-watch"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lightweight real-estate market and mortgage monitoring, starting with Hungary."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,7 +33,7 @@ dev = [
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["templates/*.html", "static/*.css", "static/*.js", "countries/hu/data/*.json"]
+app = ["templates/*.html", "static/*.css", "static/*.js", "static/*.svg", "countries/hu/data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
