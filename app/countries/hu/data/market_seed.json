@@ -1,0 +1,326 @@
+[
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2024-Q1",
+    "observation_date": "2024-03-31",
+    "price_huf_m2": 933000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2024-Q2",
+    "observation_date": "2024-06-30",
+    "price_huf_m2": 972000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2024-Q3",
+    "observation_date": "2024-09-30",
+    "price_huf_m2": 978000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2024-Q4",
+    "observation_date": "2024-12-31",
+    "price_huf_m2": 1024000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2025-Q1",
+    "observation_date": "2025-03-31",
+    "price_huf_m2": 1137000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2025-Q2",
+    "observation_date": "2025-06-30",
+    "price_huf_m2": 1189000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2025-Q3",
+    "observation_date": "2025-09-30",
+    "price_huf_m2": 1221000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2025-Q4",
+    "observation_date": "2025-12-31",
+    "price_huf_m2": 1231000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "second_hand",
+    "period": "2026-Q1",
+    "observation_date": "2026-03-31",
+    "price_huf_m2": 1221000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2024-Q1",
+    "observation_date": "2024-03-31",
+    "price_huf_m2": 1462000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2024-Q2",
+    "observation_date": "2024-06-30",
+    "price_huf_m2": 1443000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2024-Q3",
+    "observation_date": "2024-09-30",
+    "price_huf_m2": 1396000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2024-Q4",
+    "observation_date": "2024-12-31",
+    "price_huf_m2": 1536000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2025-Q1",
+    "observation_date": "2025-03-31",
+    "price_huf_m2": 1599000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2025-Q2",
+    "observation_date": "2025-06-30",
+    "price_huf_m2": 1697000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2025-Q3",
+    "observation_date": "2025-09-30",
+    "price_huf_m2": 1615000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2025-Q4",
+    "observation_date": "2025-12-31",
+    "price_huf_m2": 1546000
+  },
+  {
+    "area_code": "BUDAPEST",
+    "area_name_en": "Budapest",
+    "area_name_hu": "Budapest",
+    "property_market": "new",
+    "period": "2026-Q1",
+    "observation_date": "2026-03-31",
+    "price_huf_m2": 1557000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2024-Q1",
+    "observation_date": "2024-03-31",
+    "price_huf_m2": 524000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2024-Q2",
+    "observation_date": "2024-06-30",
+    "price_huf_m2": 519000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2024-Q3",
+    "observation_date": "2024-09-30",
+    "price_huf_m2": 512000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2024-Q4",
+    "observation_date": "2024-12-31",
+    "price_huf_m2": 569000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2025-Q1",
+    "observation_date": "2025-03-31",
+    "price_huf_m2": 608000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2025-Q2",
+    "observation_date": "2025-06-30",
+    "price_huf_m2": 587000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2025-Q3",
+    "observation_date": "2025-09-30",
+    "price_huf_m2": 646000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2025-Q4",
+    "observation_date": "2025-12-31",
+    "price_huf_m2": 655000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "second_hand",
+    "period": "2026-Q1",
+    "observation_date": "2026-03-31",
+    "price_huf_m2": 654000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2024-Q1",
+    "observation_date": "2024-03-31",
+    "price_huf_m2": 1121000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2024-Q2",
+    "observation_date": "2024-06-30",
+    "price_huf_m2": 1128000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2024-Q3",
+    "observation_date": "2024-09-30",
+    "price_huf_m2": 1195000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2024-Q4",
+    "observation_date": "2024-12-31",
+    "price_huf_m2": 1233000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2025-Q1",
+    "observation_date": "2025-03-31",
+    "price_huf_m2": 1317000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2025-Q2",
+    "observation_date": "2025-06-30",
+    "price_huf_m2": 1311000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2025-Q3",
+    "observation_date": "2025-09-30",
+    "price_huf_m2": 1276000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2025-Q4",
+    "observation_date": "2025-12-31",
+    "price_huf_m2": 1266000
+  },
+  {
+    "area_code": "HU",
+    "area_name_en": "Hungary",
+    "area_name_hu": "Magyarország",
+    "property_market": "new",
+    "period": "2026-Q1",
+    "observation_date": "2026-03-31",
+    "price_huf_m2": 1297000
+  }
+]
