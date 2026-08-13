@@ -37,11 +37,22 @@ def _number(value: str) -> float | None:
     return float(cleaned) if re.fullmatch(r"\d+(?:\.\d+)?", cleaned) else None
 
 
-def _year_from_page(soup: BeautifulSoup) -> int:
+def _year_from_page(soup: BeautifulSoup, source_url: str | None = None) -> int:
+    # The KSH year selector includes years newer than the requested observation. Trust the
+    # explicit query parameter first; taking max(<option>) used to mislabel 2024 rows as 2025.
+    if source_url:
+        requested = parse_qs(urlparse(source_url).query).get("year", [])
+        if requested and re.fullmatch(r"(?:19|20)\d{2}", requested[0]):
+            return int(requested[0])
+
     years: list[int] = []
     for option in soup.find_all("option"):
-        for value in (option.get("value"), option.get_text(" ", strip=True)):
+        selected = option.has_attr("selected")
+        values = (option.get("value"), option.get_text(" ", strip=True))
+        for value in values:
             match = re.search(r"\b(19\d{2}|20\d{2})\b", str(value or ""))
+            if match and selected:
+                return int(match.group(1))
             if match:
                 years.append(int(match.group(1)))
     if years:
@@ -94,57 +105,60 @@ def parse_ksh_local_page(
     uses the same factual column order for house, condominium, panel and all dwellings.
     """
     soup = BeautifulSoup(html, "html.parser")
-    year = _year_from_page(soup)
+    year = _year_from_page(soup, source_url)
     output: list[dict] = []
-    table = soup.find("table")
-    if table is None:
+    # Some KSH pages contain utility/layout tables before the actual data table. Search all
+    # rows instead of assuming the first <table> is the statistical one.
+    tables = soup.find_all("table")
+    if not tables:
         raise ValueError("KSH Ingatlanadattár table not found")
 
-    for tr in table.find_all("tr"):
-        cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
-        if len(cells) < 10:
-            continue
-        label = cells[0].strip()
-        if not label or "ingatlan helye" in label.casefold():
-            continue
-
-        if fixed_area_code:
-            area_code = fixed_area_code
-            area_name = fixed_area_name or fixed_area_code
-            street_name = label
-        else:
-            area_code = _district_code(label)
-            if not area_code:
-                if label.casefold().startswith("budapest összesen"):
-                    area_code = "BUDAPEST"
-                else:
-                    continue
-            area_name = label
-            street_name = None
-
-        relative_std = _number(cells[9])
-        for property_type, (price_col, count_col) in PROPERTY_COLUMNS.items():
-            price_thousand = _number(cells[price_col])
-            count = _number(cells[count_col])
-            if price_thousand is None:
+    for table in tables:
+        for tr in table.find_all("tr"):
+            cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+            if len(cells) < 10:
                 continue
-            price_huf_m2 = price_thousand * 1000
-            if not 50_000 <= price_huf_m2 <= 10_000_000:
-                raise ValueError(f"KSH local value outside safety range: {price_huf_m2}")
-            output.append(
-                {
-                    "year": year,
-                    "area_code": area_code,
-                    "area_name": area_name,
-                    "street_name": street_name,
-                    "street_key": street_key(street_name),
-                    "property_type": property_type,
-                    "mean_huf_m2": price_huf_m2,
-                    "transaction_count": int(count) if count is not None else None,
-                    "relative_std_pct": relative_std if property_type == "all" else None,
-                    "source_url": source_url,
-                }
-            )
+            label = cells[0].strip()
+            if not label or "ingatlan helye" in label.casefold():
+                continue
+
+            if fixed_area_code:
+                area_code = fixed_area_code
+                area_name = fixed_area_name or fixed_area_code
+                street_name = label
+            else:
+                area_code = _district_code(label)
+                if not area_code:
+                    if label.casefold().startswith("budapest összesen"):
+                        area_code = "BUDAPEST"
+                    else:
+                        continue
+                area_name = label
+                street_name = None
+
+            relative_std = _number(cells[9])
+            for property_type, (price_col, count_col) in PROPERTY_COLUMNS.items():
+                price_thousand = _number(cells[price_col])
+                count = _number(cells[count_col])
+                if price_thousand is None:
+                    continue
+                price_huf_m2 = price_thousand * 1000
+                if not 50_000 <= price_huf_m2 <= 10_000_000:
+                    raise ValueError(f"KSH local value outside safety range: {price_huf_m2}")
+                output.append(
+                    {
+                        "year": year,
+                        "area_code": area_code,
+                        "area_name": area_name,
+                        "street_name": street_name,
+                        "street_key": street_key(street_name),
+                        "property_type": property_type,
+                        "mean_huf_m2": price_huf_m2,
+                        "transaction_count": int(count) if count is not None else None,
+                        "relative_std_pct": relative_std if property_type == "all" else None,
+                        "source_url": source_url,
+                    }
+                )
 
     if not output:
         raise ValueError("KSH Ingatlanadattár contained no supported observations")
@@ -194,20 +208,39 @@ def local_refresh_due(db: Session) -> bool:
     return datetime.now(timezone.utc) - last >= timedelta(hours=settings.ksh_local_refresh_hours)
 
 
+def _load_latest_published_budapest_page(settings) -> tuple[str, str, int, list[dict], dict[str, str]]:
+    """Find the newest KSH year that actually contains Budapest observations.
+
+    KSH can expose a newer year in the selector/footer before the detailed Ingatlanadattár
+    table contains usable rows for that year. Explicitly probing recent years prevents an
+    empty newest year from breaking the granular provider or being silently mislabelled.
+    """
+    current_year = date.today().year
+    errors: list[str] = []
+    for candidate_year in range(current_year - 1, max(current_year - 6, 1996), -1):
+        root_url = f"{settings.ksh_local_url}?ter=01&year={candidate_year}"
+        response = request_with_retry(
+            "GET",
+            root_url,
+            timeout=settings.http_timeout_seconds,
+            attempts=2,
+            headers={"User-Agent": "real-estate-watch/0.2"},
+        )
+        try:
+            year, rows, district_links = parse_ksh_local_page(response.text, source_url=root_url)
+            return root_url, response.text, year, rows, district_links
+        except ValueError as exc:
+            errors.append(f"{candidate_year}: {exc}")
+    raise ValueError("No recent published Budapest KSH local year found; " + "; ".join(errors))
+
+
 def refresh_ksh_local(db: Session, *, include_streets: bool = True, force: bool = False) -> dict:
     settings = get_settings()
     if not force and not local_refresh_due(db):
         return {"ok": True, "skipped": True, "reason": "granular KSH refresh not due"}
 
-    root_url = f"{settings.ksh_local_url}?ter=01"
     try:
-        response = request_with_retry(
-            "GET",
-            root_url,
-            timeout=settings.http_timeout_seconds,
-            headers={"User-Agent": "real-estate-watch/0.2"},
-        )
-        year, rows, district_links = parse_ksh_local_page(response.text, source_url=root_url)
+        root_url, _, year, rows, district_links = _load_latest_published_budapest_page(settings)
         inserted = 0
         for item in rows:
             inserted += int(_upsert(db, item))
@@ -256,6 +289,7 @@ def refresh_ksh_local(db: Session, *, include_streets: bool = True, force: bool 
         return {
             "ok": True,
             "year": year,
+            "source_url": root_url,
             "district_rows": len(rows),
             "districts_loaded": districts_loaded,
             "street_rows": street_rows,
