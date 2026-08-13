@@ -7,6 +7,11 @@ on:
   push:
     paths:
       - '.github/workflows/source-contract.yml'
+      - 'app/countries/hu/providers/**'
+      - 'app/services/ksh_local.py'
+      - 'app/services/fx.py'
+      - 'app/services/market.py'
+      - 'app/services/transaction_counts.py'
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ permissions:
 jobs:
   live-sources:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,13 +29,19 @@ jobs:
       - run: pip install -e .
       - name: Prepare local reference database
         run: python -m app.cli seed
-      - name: Check live KSH price contract
+      - name: Check live KSH quarterly-price contract
         run: python -m app.cli collect-market
       - name: Check live KSH transaction-count contract
         run: python -m app.cli collect-counts
+      - name: Check KSH granular district and street HTML contract
+        run: python -m app.cli collect-local --no-streets --contract-only
       # MNB's latest-rates HTML page is the production FX contract. The older documented
       # SOAP route returned HTTP 404 during the first live check in August 2026.
       - name: Check live MNB exchange-rate contract
         run: python -m app.cli collect-fx
+      # This fetches policy/robots, the property sitemap and exactly one listing page. CI never
+      # performs the production listing crawl merely to test an upstream contract.
+      - name: Check Duna House policy, sitemap and one property page
+        run: python -m app.cli collect-observed --contract-only
       - name: Run resulting self-checks
         run: python -m app.cli self-check
