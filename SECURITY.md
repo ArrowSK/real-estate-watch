@@ -11,3 +11,5 @@ For ordinary non-sensitive bugs, use GitHub issues. For a security problem that 
 - If `/ops/refresh` is needed, configure a strong `ADMIN_KEY` and send it only in the `X-Admin-Key` header.
 - If `ADMIN_KEY` is absent, the web refresh endpoint is disabled by design.
 - Treat `NOTIFY_WEBHOOK_URL` as a secret if the receiving system embeds credentials in the URL.
+- Treat `TELEGRAM_BOT_TOKEN` and `SMTP_PASSWORD` as secrets. Store them only in deployment environment variables or a secret manager.
+- Delivery errors deliberately record only the exception type for webhook, Telegram and email failures so credential-bearing URLs or tokens are not written to notification history.
