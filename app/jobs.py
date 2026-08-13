@@ -8,7 +8,7 @@ from app.models import JobRun
 from app.services.fx import refresh_mnb_fx
 from app.services.health import run_self_checks
 from app.services.market import latest_market, refresh_ksh
-from app.services.notifications import send_webhook
+from app.services.notifications import send_notifications
 from app.services.self_heal import heal_reference_data
 
 
@@ -59,7 +59,7 @@ def run_daily_collection(db: Session) -> dict:
                 changes.append({"area": key[0], "market": key[1], "from": old, "to": new, "change_percent": pct * 100})
         result["market_changes"] = changes
         if changes:
-            result["market_notification"] = send_webhook(
+            result["market_notification"] = send_notifications(
                 db,
                 "market_change",
                 {"event": "market_change", "changes": changes},
@@ -68,7 +68,7 @@ def run_daily_collection(db: Session) -> dict:
         result["checks"] = run_self_checks(db)
         result["ok"] = bool(result["market"].get("ok") and result["fx"].get("ok"))
         if not result["ok"]:
-            send_webhook(
+            result["source_notification"] = send_notifications(
                 db,
                 "source_degraded",
                 {
