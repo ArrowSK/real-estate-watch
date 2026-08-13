@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     dh_max_listings_per_run: int = 250
     dh_request_delay_seconds: float = 0.20
     dh_min_aggregate_sample: int = 12
+    dh_inactive_after_misses: int = 2
     dh_policy_review_max_age_days: int = 90
 
     def sqlalchemy_url(self) -> str:

@@ -58,11 +58,11 @@ The source uses KSH territorial identifiers internally. The 23 Budapest district
 
 The Ingatlanadattár client dataset used here does not expose the same `new` versus `second_hand` split as the quarterly STADAT series. Real Estate Watch therefore does **not** call a granular row a district-level second-hand or new-build observation.
 
-For second-hand Budapest nowcasting, the granular value is converted to a local/property-type factor relative to the same-year Budapest all-dwelling annual value and that factor is applied to the latest quarterly Budapest second-hand benchmark. For new-build selections, version 0.2 stays on the directly published quarterly new-build series instead of applying an unsupported granular segment assumption.
+For second-hand Budapest nowcasting, the granular value is converted to a local/property-type factor relative to the same-year Budapest all-dwelling annual value and that factor is applied to the latest quarterly Budapest second-hand benchmark. For new-build selections, version 0.2.1 stays on the directly published quarterly new-build series instead of applying an unsupported granular segment assumption.
 
-The exact formula and fallback order are in [METHODOLOGY.md](METHODOLOGY.md).
+The exact formula, fallback order and Local Evidence display rules are in [METHODOLOGY.md](METHODOLOGY.md).
 
-### Refresh behavior
+### Refresh behaviour
 
 The granular dataset is annual and substantially larger than the quarterly tables, so its collector normally refreshes weekly. `KSH_LOCAL_REFRESH_HOURS` controls the interval. Source-health data record success, failure and the normalised row count.
 
@@ -82,9 +82,11 @@ This source has a deliberately different status from KSH: **experimental observe
 
 At the review date, the public robots file allowed the reviewed property path and declared a property sitemap. That technical crawl signal is not treated as an open-data licence. Real Estate Watch does not claim the Duna House data are open data or that the observed subset represents every Hungarian listing portal.
 
-The provider minimises retained data. It stores only factual fields needed for market statistics: listing reference, canonical URL, locality/postcode/district, broad property class, new/second-hand status when determinable, rooms, asking price, floor area and observation timestamps. It does not store descriptions, photographs, floor plans, seller/agent names, phone numbers or email addresses.
+The provider minimises retained data. Core observations contain only factual fields needed for market statistics: listing reference, canonical URL, locality/postcode/district, broad property class, new/second-hand status when determinable, rooms, asking price, floor area and observation timestamps.
 
-The public application exposes aggregates rather than a reconstructed listing browser.
+Version 0.2.1 can also retain short explicitly labelled factual attributes in a separate table: building type, condition, construction year, floor, lift, balcony/terrace, view, orientation, heating and energy rating. These fields currently measure data coverage; they are not silently used as valuation coefficients.
+
+The provider does not store descriptions, photographs, floor plans, seller/agent names, phone numbers or email addresses. The public application exposes aggregates rather than a reconstructed listing browser.
 
 Before detail-page collection, the policy guard verifies the reviewed robots/sitemap contract, looks for explicit automated-access stop-language changes, fingerprints the relevant policy material and enforces a dated manual-review expiry. An unexpected policy change pauses collection rather than triggering a workaround.
 
@@ -96,9 +98,27 @@ The headline asking figure is the median HUF/m² of source listings successfully
 
 It is not described as the median of all active Hungarian listings. Source composition can differ from the wider market by agency network, geography, property type and seller mix.
 
-The app can record source-observation coverage against the currently discovered property sitemap. That is an operational coverage measure, not Hungarian market share.
+The app can record source-observation coverage against the currently discovered **eligible residential** sitemap URLs. That is an operational coverage measure, not Hungarian market share.
 
-A listing that disappears from the sitemap is marked inactive. It is never automatically labelled sold.
+The same observed rows can be grouped to Budapest district and postcode level when the configured minimum sample is met. A smaller geography does not make the source subset a complete market sample.
+
+### Presence and disappearance
+
+A single missing sitemap observation no longer makes a listing inactive. The default `DH_INACTIVE_AFTER_MISSES=2` requires two consecutive absences. A reappearing listing is reactivated and its miss state resets.
+
+This protects against transient sitemap inconsistency. It does not create a sold-status inference. A listing that becomes inactive is never automatically labelled sold.
+
+### Longitudinal live signals
+
+The Live Asking workspace can derive deployment-local signals from stored observations:
+
+- price-cut share based on latest observed price versus first locally observed price;
+- median observed reduction among listings with a cut;
+- listings first seen during the last seven days;
+- median days since local first observation;
+- structured factual-field coverage.
+
+Those definitions are deployment-local. They do not claim access to the source's full historical listing lifecycle before this application began observing it.
 
 ## MNB exchange rates
 
@@ -153,7 +173,7 @@ Until then, the UI asks for an interest rate and does not label the result a cur
 - KSH quarterly transaction-count parsing;
 - the KSH Ingatlanadattár client dataset and granular normalisation;
 - MNB FX parsing;
-- the Duna House policy/sitemap contract and one factual listing page;
+- the Duna House policy/sitemap contract and one factual residential listing page;
 - resulting application self-checks.
 
 The Duna House step is intentionally a probe. GitHub Actions does not bulk-collect Duna House listings.

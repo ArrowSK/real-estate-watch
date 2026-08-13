@@ -10,6 +10,8 @@ from app.models import (
     LocalBenchmark,
     MarketSnapshot,
     ObservedListing,
+    ObservedListingAttribute,
+    ObservedListingPresence,
     ProviderPolicyState,
     SourceHealth,
 )
@@ -28,6 +30,8 @@ def run_self_checks(db: Session) -> list[dict]:
         checks.append({"key": "database", "ok": True, "detail": "Database query succeeded"})
     except Exception as exc:
         return [{"key": "database", "ok": False, "detail": str(exc)}]
+
+    settings = get_settings()
 
     market_count = db.scalar(select(func.count()).select_from(MarketSnapshot)) or 0
     checks.append(
@@ -81,6 +85,34 @@ def run_self_checks(db: Session) -> list[dict]:
         }
     )
 
+    presence_count = db.scalar(select(func.count()).select_from(ObservedListingPresence)) or 0
+    pending_presence = db.scalar(
+        select(func.count())
+        .select_from(ObservedListingPresence)
+        .where(
+            ObservedListingPresence.sitemap_miss_count > 0,
+            ObservedListingPresence.sitemap_miss_count
+            < max(1, settings.dh_inactive_after_misses),
+        )
+    ) or 0
+    inactive_presence = db.scalar(
+        select(func.count())
+        .select_from(ObservedListingPresence)
+        .where(ObservedListingPresence.inactive_at.is_not(None))
+    ) or 0
+    attribute_count = db.scalar(select(func.count()).select_from(ObservedListingAttribute)) or 0
+    checks.append(
+        {
+            "key": "listing_presence",
+            "ok": True,
+            "detail": (
+                f"{presence_count} listing presence states; {pending_presence} pending sitemap absence; "
+                f"{inactive_presence} inactive after threshold; {attribute_count} factual attribute rows"
+            ),
+            "soft": True,
+        }
+    )
+
     policy = db.scalar(
         select(ProviderPolicyState).where(ProviderPolicyState.source_key == "duna_house_observed")
     )
@@ -108,7 +140,6 @@ def run_self_checks(db: Session) -> list[dict]:
         }
     )
 
-    settings = get_settings()
     sources = list(db.scalars(select(SourceHealth).order_by(SourceHealth.source_key)))
     degraded = [source for source in sources if source.state == "degraded"]
     checks.append(
@@ -148,7 +179,7 @@ def run_self_checks(db: Session) -> list[dict]:
             "key": "self_heal",
             "ok": settings.self_heal_enabled,
             "detail": (
-                "Reference-data recovery enabled"
+                "Reference-data recovery and listing-presence recovery are enabled"
                 if settings.self_heal_enabled
                 else "Reference-data recovery disabled by configuration"
             ),

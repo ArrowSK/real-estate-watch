@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}{{ t.local_market }} · {{ t.app_name }}{% endblock %}
+{% block content %}
+<section class="hero local-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">KSH Ingatlanadattár · {{ t.completed_transactions }}</p>
+    <h1>{{ t.local_title }}</h1>
+    <p class="hero-intro">{{ t.local_intro }}</p>
+  </div>
+  <div class="formula-stamp" aria-label="Method">
+    <span>LOCAL</span><b>÷</b><span>BUDAPEST</span><b>×</b><span>LATEST</span>
+  </div>
+</section>
+
+<form class="ledger-filter local-filter" method="get" action="/local">
+  <label>{{ t.district }}
+    <select name="area">
+      {% for item in districts %}
+      <option value="{{ item.code }}" {% if item.code == selected_area %}selected{% endif %}>{{ item.name_hu if lang == 'hu' else item.name_en }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.property_type }}
+    <select name="property_type">
+      {% for value, en_name, hu_name in property_types %}
+      <option value="{{ value }}" {% if value == selected_property_type %}selected{% endif %}>{{ hu_name if lang == 'hu' else en_name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.local_year }}
+    <select name="year">
+      {% for value in years %}<option value="{{ value }}" {% if value == selected_year %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>{{ t.street_search }}
+    <input name="q" value="{{ search }}" placeholder="{{ t.street_search_placeholder }}">
+  </label>
+  <button type="submit">{{ t.calculate }}</button>
+</form>
+
+{% if district_signal %}
+<section class="intelligence-grid local-metric-grid">
+  <article class="ledger-card transaction-card intelligence-lead">
+    <div class="card-index">LOCAL / 01</div>
+    <p class="label icon-label"><svg class="icon"><use href="/static/icons.svg#location"></use></svg>{{ t.official_local }}</p>
+    <p class="metric">{{ fmt(district_signal.mean_huf_m2, 0) }} <span>HUF/m²</span></p>
+    <p class="submetric">KSH {{ district_signal.year }} · {{ district_signal.area_name }}</p>
+    <div class="evidence-strip">
+      <div><span>{{ t.transactions }}</span><strong>{{ district_signal.transaction_count or '—' }}</strong></div>
+      <div><span>{{ t.relative_spread }}</span><strong>{% if district_signal.relative_std_pct is not none %}{{ fmt(district_signal.relative_std_pct, 1) }}%{% else %}—{% endif %}</strong></div>
+      <div><span>{{ t.confidence }}</span><strong>{{ district_signal.confidence|upper }}</strong></div>
+    </div>
+  </article>
+
+  <article class="ledger-card intelligence-signal">
+    <div class="card-index">LOCAL / 02</div>
+    <p class="label">{{ t.city_reference }}</p>
+    <p class="signal-number compact-number">{% if district_signal.city_reference_huf_m2 is not none %}{{ fmt(district_signal.city_reference_huf_m2, 0) }}{% else %}—{% endif %}</p>
+    <p class="muted small">HUF/m² · {{ selected_year }}</p>
+  </article>
+
+  <article class="ledger-card intelligence-signal">
+    <div class="card-index">LOCAL / 03</div>
+    <p class="label">{{ t.local_factor }}</p>
+    <p class="signal-number">{% if district_signal.local_factor is not none %}{{ "%.3f"|format(district_signal.local_factor) }}×{% else %}—{% endif %}</p>
+    <p class="muted small">{{ t.local_factor_note }}</p>
+  </article>
+
+  <article class="ledger-card intelligence-signal current-local-card">
+    <div class="card-index">LOCAL / 04</div>
+    <p class="label">{{ t.current_local_estimate }}</p>
+    <p class="signal-number compact-number">{% if district_signal.current_huf_m2 is not none %}{{ fmt(district_signal.current_huf_m2, 0) }}{% else %}—{% endif %}</p>
+    <p class="muted small">HUF/m² · {{ t.second_hand }}</p>
+  </article>
+</section>
+{% else %}
+<section class="ledger-card empty-state"><h2>{{ t.not_available }}</h2><p class="muted">{{ t.local_intro }}</p></section>
+{% endif %}
+
+<section class="ledger-card street-ledger-card">
+  <div class="section-heading">
+    <div>
+      <p class="label">{{ selected_area }} · {{ selected_year }}</p>
+      <h2>{{ t.street_detail }}</h2>
+    </div>
+    <span class="source-badge official">KSH · {{ street_rows|length }}</span>
+  </div>
+  {% if street_rows %}
+  <div class="street-ledger-head">
+    <span>{{ t.street }}</span><span>{{ t.transactions }}</span><span>{{ t.official_local }}</span><span>{{ t.current_local_estimate }}</span><span>{{ t.confidence }}</span>
+  </div>
+  <div class="street-ledger">
+    {% for row in street_rows %}
+    <article class="street-ledger-row">
+      <div class="street-primary"><strong>{{ row.street_name }}</strong><small>{% if row.relative_std_pct is not none %}σ {{ fmt(row.relative_std_pct, 1) }}%{% else %}σ —{% endif %}</small></div>
+      <span class="street-count">{{ row.transaction_count or '—' }}</span>
+      <span class="street-value">{{ fmt(row.mean_huf_m2, 0) }}</span>
+      <span class="street-value current">{% if row.current_huf_m2 is not none %}{{ fmt(row.current_huf_m2, 0) }}{% else %}—{% endif %}</span>
+      <span class="confidence-chip {{ row.confidence }}">{{ row.confidence|upper }}</span>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<p class="muted">{{ t.no_street_rows }}</p>{% endif %}
+  <p class="method-note"><svg class="icon"><use href="/static/icons.svg#info"></use></svg>{{ t.local_method_note }}</p>
+</section>
+
+<section class="evidence-grid">
+  <article class="evidence-note"><span class="evidence-number">A</span><div><h3>{{ t.official_layer }}</h3><p>{{ t.local_source_note }}</p></div></article>
+  <article class="evidence-note"><span class="evidence-number">B</span><div><h3>{{ t.local_factor }}</h3><p>{{ t.local_factor_note }}</p></div></article>
+  <article class="evidence-note"><span class="evidence-number">C</span><div><h3>{{ t.precision }}</h3><p>{{ t.local_precision_note }}</p></div></article>
+</section>
+{% endblock %}

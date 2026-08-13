@@ -33,6 +33,14 @@
         <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#market"></use></svg>
         <span>{{ t.market }}</span>
       </a>
+      <a href="/live" class="{% if request.url.path == '/live' %}active{% endif %}">
+        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#asking"></use></svg>
+        <span>{{ t.live_market }}</span>
+      </a>
+      <a href="/local" class="{% if request.url.path == '/local' %}active{% endif %}">
+        <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#location"></use></svg>
+        <span>{{ t.local_market }}</span>
+      </a>
       <a href="/valuation" class="{% if request.url.path == '/valuation' %}active{% endif %}">
         <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#valuation"></use></svg>
         <span>{{ t.valuation }}</span>

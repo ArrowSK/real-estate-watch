@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ t.live_market }} · {{ t.app_name }}{% endblock %}
+{% block content %}
+<section class="hero live-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Duna House · {{ t.observed_subset }}</p>
+    <h1>{{ t.live_title }}</h1>
+    <p class="hero-intro">{{ t.live_intro }}</p>
+  </div>
+  <div class="signal-stamps">
+    <span class="source-badge observed">{{ t.experimental }}</span>
+    <span class="source-badge {{ 'official' if policy_ok else 'warning-text' }}">
+      <svg class="icon"><use href="/static/icons.svg#shield"></use></svg>
+      {{ t.policy_ok if policy_ok else t.policy_paused }}
+    </span>
+  </div>
+</section>
+
+<form class="ledger-filter live-filter" method="get" action="/live">
+  <label>{{ t.area }}
+    <select name="area">
+      {% for item in areas %}
+      <option value="{{ item.code }}" {% if item.code == selected_area %}selected{% endif %}>{{ item.name_hu if lang == 'hu' else item.name_en }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.postcode }}
+    <select name="postcode">
+      <option value="">{{ t.all_postcodes }}</option>
+      {% for value, count in postcode_options %}
+      <option value="{{ value }}" {% if value == selected_postcode %}selected{% endif %}>{{ value }} · {{ count }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.property_type }}
+    <select name="property_type">
+      {% for value, en_name, hu_name in property_types %}
+      {% if value in ['all','apartment','house'] %}
+      <option value="{{ value }}" {% if value == selected_property_type %}selected{% endif %}>{{ hu_name if lang == 'hu' else en_name }}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.market }}
+    <select name="market">
+      <option value="second_hand" {% if selected_market == 'second_hand' %}selected{% endif %}>{{ t.second_hand }}</option>
+      <option value="new" {% if selected_market == 'new' %}selected{% endif %}>{{ t.new }}</option>
+    </select>
+  </label>
+  <button type="submit">{{ t.calculate }}</button>
+</form>
+
+{% if signals.latest or signals.sample_size %}
+<section class="intelligence-grid">
+  <article class="ledger-card intelligence-lead asking-card">
+    <div class="card-index">LIVE / 01</div>
+    <p class="label icon-label"><svg class="icon"><use href="/static/icons.svg#asking"></use></svg>{{ t.median_asking }}</p>
+    {% if signals.latest %}
+    <p class="metric">{{ fmt(signals.latest.median_huf_m2, 0) }} <span>HUF/m²</span></p>
+    <p class="submetric">{{ signals.latest.snapshot_date }} · {{ t.confidence }}: {{ signals.latest.confidence|upper }}</p>
+    <div class="evidence-strip">
+      <div><span>{{ t.middle_50 }}</span><strong>{{ fmt(signals.latest.p25_huf_m2, 0) }}–{{ fmt(signals.latest.p75_huf_m2, 0) }}</strong></div>
+      <div><span>{{ t.sample }}</span><strong>{{ signals.latest.sample_size }}</strong></div>
+      <div><span>{{ t.coverage }}</span><strong>{% if signals.latest.coverage_ratio is not none %}{{ "%.1f"|format(signals.latest.coverage_ratio * 100) }}%{% else %}—{% endif %}</strong></div>
+    </div>
+    {% else %}
+    <p class="metric">—</p>
+    <p class="empty-copy">{{ t.asking_market_not_ready }}</p>
+    {% endif %}
+  </article>
+
+  <article class="ledger-card intelligence-signal">
+    <div class="card-index">LIVE / 02</div>
+    <p class="label">{{ t.price_cuts }}</p>
+    <p class="signal-number">{% if signals.price_cut_share is not none %}{{ "%.1f"|format(signals.price_cut_share * 100) }}%{% else %}—{% endif %}</p>
+    <p class="muted small">{{ signals.price_cut_count }} {{ t.observed_reductions|lower }}{% if signals.median_price_cut_pct is not none %} · {{ t.median_cut }} {{ "%.1f"|format(signals.median_price_cut_pct) }}%{% endif %}</p>
+  </article>
+
+  <article class="ledger-card intelligence-signal">
+    <div class="card-index">LIVE / 03</div>
+    <p class="label">{{ t.new_observations }}</p>
+    <p class="signal-number">{{ signals.new_7d_count }}</p>
+    <p class="muted small">{{ t.last_7_days }} · {{ signals.new_today_count }} {{ t.today|lower }}</p>
+  </article>
+
+  <article class="ledger-card intelligence-signal">
+    <div class="card-index">LIVE / 04</div>
+    <p class="label">{{ t.observed_days }}</p>
+    <p class="signal-number">{% if signals.median_observed_days is not none %}{{ "%.0f"|format(signals.median_observed_days) }}{% else %}—{% endif %}</p>
+    <p class="muted small">{{ t.observed_days_note }}</p>
+  </article>
+</section>
+
+<section class="ledger-card chart-card live-chart-card">
+  <div class="section-heading">
+    <div>
+      <p class="label">{{ t.observed_history }}</p>
+      <h2>{{ scope_label }}</h2>
+    </div>
+    <span class="source-badge observed">MEDIAN · HUF/m²</span>
+  </div>
+  <div class="chart-legend"><span class="legend-item asking"><i></i>{{ t.observed_asking }}</span></div>
+  <div class="chart-wrap">
+    <canvas id="marketChart" data-official='[]' data-asking='{{ history | tojson }}' aria-label="{{ t.observed_history }}"></canvas>
+  </div>
+</section>
+
+<section class="live-secondary-grid">
+  <article class="ledger-card">
+    <div class="section-heading compact-heading"><h2>{{ t.transaction_comparison }}</h2><span class="source-badge official">KSH</span></div>
+    {% if comparison.official %}
+    <div class="data-ledger">
+      <div><span>{{ t.official_nowcast_short }}</span><strong>{{ fmt(comparison.official.value_huf_m2, 0) }} HUF/m²</strong></div>
+      <div><span>{{ t.asking_gap }}</span><strong>{% if comparison.asking_gap_pct is not none %}{{ "%+.1f"|format(comparison.asking_gap_pct) }}%{% else %}—{% endif %}</strong></div>
+      <div><span>{{ t.six_month_change }}</span><strong>{% if comparison.official_6m_change_pct is not none %}{{ "%+.1f"|format(comparison.official_6m_change_pct) }}%{% else %}—{% endif %}</strong></div>
+    </div>
+    <p class="method-note"><svg class="icon"><use href="/static/icons.svg#info"></use></svg>{{ t.asking_gap_note }}</p>
+    {% else %}<p class="muted">{{ t.not_available }}</p>{% endif %}
+  </article>
+
+  <article class="ledger-card">
+    <div class="section-heading compact-heading"><h2>{{ t.feature_coverage }}</h2><span class="source-badge observed">FACTS ONLY</span></div>
+    <div class="data-ledger">
+      <div><span>{{ t.listings_with_features }}</span><strong>{% if signals.attribute_listing_coverage_pct is not none %}{{ "%.1f"|format(signals.attribute_listing_coverage_pct) }}%{% else %}—{% endif %}</strong></div>
+      <div><span>{{ t.feature_field_coverage }}</span><strong>{% if signals.attribute_field_coverage_pct is not none %}{{ "%.1f"|format(signals.attribute_field_coverage_pct) }}%{% else %}—{% endif %}</strong></div>
+      <div><span>{{ t.usable_live_rows }}</span><strong>{{ signals.sample_size }}</strong></div>
+    </div>
+    <p class="method-note"><svg class="icon"><use href="/static/icons.svg#database"></use></svg>{{ t.feature_privacy_note }}</p>
+  </article>
+</section>
+{% else %}
+<section class="ledger-card empty-state">
+  <svg class="empty-icon"><use href="/static/icons.svg#asking"></use></svg>
+  <h2>{{ t.asking_market_not_ready }}</h2>
+  <p class="muted">{{ t.live_intro }}</p>
+</section>
+{% endif %}
+
+<section class="evidence-grid">
+  <article class="evidence-note"><span class="evidence-number">A</span><div><h3>{{ t.observed_subset }}</h3><p>{{ t.asking_subset_note }}</p></div></article>
+  <article class="evidence-note"><span class="evidence-number">B</span><div><h3>{{ t.source_policy }}</h3><p>{{ t.policy_guard_note }}</p></div></article>
+  <article class="evidence-note"><span class="evidence-number">C</span><div><h3>{{ t.removed_not_sold }}</h3><p>{{ t.removed_not_sold_note }}</p></div></article>
+</section>
+{% endblock %}

@@ -8,13 +8,17 @@ on:
     paths:
       - '.github/workflows/source-contract.yml'
       - 'app/services/duna_house.py'
+      - 'app/services/live_intelligence.py'
+      - 'app/services/health.py'
       - 'app/services/ksh_local.py'
       - 'app/services/market.py'
       - 'app/services/transaction_counts.py'
       - 'app/services/fx.py'
       - 'app/config.py'
+      - 'app/models.py'
       - 'tests/test_duna_house.py'
       - 'tests/test_ksh_local.py'
+      - 'tests/test_live_intelligence.py'
 
 permissions:
   contents: read

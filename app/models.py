@@ -96,6 +96,42 @@ class ObservedListing(Base):
     quality_state: Mapped[str] = mapped_column(String(24), default="usable", index=True)
 
 
+class ObservedListingPresence(Base):
+    """Sitemap-presence state kept separately so older deployments need no column rewrite."""
+
+    __tablename__ = "observed_listing_presence"
+
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("observed_listings.id", ondelete="CASCADE"), primary_key=True
+    )
+    sitemap_miss_count: Mapped[int] = mapped_column(Integer, default=0)
+    missing_since_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inactive_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sitemap_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ObservedListingAttribute(Base):
+    """Short factual listing attributes only; no description or contact content is retained."""
+
+    __tablename__ = "observed_listing_attributes"
+
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("observed_listings.id", ondelete="CASCADE"), primary_key=True
+    )
+    status_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    building_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    condition: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    construction_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    floor: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    lift: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    balcony: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    view: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    orientation: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    heating: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    energy_rating: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ListingSnapshot(Base):
     __tablename__ = "listing_snapshots"
     __table_args__ = (
