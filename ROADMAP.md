@@ -14,7 +14,7 @@ Implemented:
 - separate new-build and second-hand series;
 - granular KSH Ingatlanadattár collection for Budapest districts and available street/property-type observations;
 - property classes for all dwellings, condominium apartments, houses and panel apartments where the source supports them;
-- transparent current transaction-value nowcast using the local annual KSH benchmark and subsequent official Budapest quarterly movement;
+- transparent second-hand transaction-value nowcast using the annual KSH local/property-type factor and the latest official Budapest quarterly second-hand benchmark;
 - experimental Duna House factual asking-market observer using sitemap discovery, bounded incremental detail-page collection and aggregate-only public presentation;
 - policy guard that pauses the Duna House collector after reviewed robots/policy changes or when the dated human review expires;
 - daily observed asking aggregates with median, mean, P25/P75, sample, new observations, price reductions, operational coverage and conservative confidence;

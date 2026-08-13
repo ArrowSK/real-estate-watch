@@ -10,7 +10,7 @@ Version 0.2 changes the market model substantially: it no longer stops at a broa
 
 The main market page separates two questions.
 
-**Transaction-value evidence** comes from KSH. For Budapest districts, the app can use annual district or street-level KSH Ingatlanadattár statistics and move that local benchmark forward with the subsequent official Budapest quarterly completed-transaction trend.
+**Transaction-value evidence** comes from KSH. For Budapest second-hand homes, the app can use annual district or street-level KSH Ingatlanadattár statistics to measure a local/property-type factor relative to the same-year Budapest annual market, then apply that factor to the latest official Budapest quarterly second-hand benchmark.
 
 **Observed asking-market evidence** comes from an experimental Duna House observer. It uses the source's property sitemap for discovery, keeps only factual fields required for statistics, and publishes aggregate medians/ranges rather than rebuilding a listing portal.
 
@@ -41,8 +41,8 @@ The valuation worksheet can therefore start from a much more local source than a
 The current local nowcast formula is intentionally simple and inspectable:
 
 ```text
-local annual KSH HUF/m²
-× subsequent official Budapest quarterly transaction movement
+(local annual KSH HUF/m² / same-year Budapest annual all-dwelling HUF/m²)
+× latest Budapest quarterly SECOND-HAND KSH HUF/m²
 = current transaction-value nowcast
 ```
 
@@ -133,7 +133,7 @@ Current Hungary sources:
 
 - KSH STADAT 18.2.2.14 — quarterly completed-transaction mean HUF/m²: `https://www.ksh.hu/stadat_files/lak/en/lak0052.html`
 - KSH STADAT 18.2.2.15 — quarterly transaction counts: `https://www.ksh.hu/stadat_files/lak/en/lak0053.html`
-- KSH Ingatlanadattár — granular completed-transaction statistics: `https://www.ksh.hu/s/ingatlanadattar/`
+- KSH Ingatlanadattár — granular completed-transaction statistics; the frontend client dataset used by the collector is `https://www.ksh.hu/s/ingatlanadattar/inga-data.json`
 - MNB latest official exchange rates: `https://www.mnb.hu/arfolyamok`
 - MNB HFM/JTM debt-brake rules: `https://www.mnb.hu/penzugyi-stabilitas/makroprudencialis-politika/makroprudencialis-eszkoztar/adossagfek-szabalyok-hfm-jtm`
 - NAV general transfer-tax rates: `https://nav.gov.hu/ugyfeliranytu/adokulcsok_jarulekmertekek/illetekmertekek/visszterhes-vagyonatruhazasi-illetek`
@@ -169,7 +169,7 @@ Then open:
 http://localhost:8000/diagnostics
 ```
 
-The first granular KSH refresh may take longer than the ordinary daily job because it loads the Budapest root table and district street pages. The Duna House observer is bounded by `DH_MAX_LISTINGS_PER_RUN`, so source coverage builds over multiple runs rather than attempting a full detail-page sweep at once.
+The first granular KSH refresh downloads KSH Ingatlanadattár’s official client JSON dataset once and materialises the supported Budapest city, district, street and property-class rows locally. The Duna House observer is bounded by `DH_MAX_LISTINGS_PER_RUN`, so source coverage builds over multiple runs rather than attempting a full detail-page sweep at once.
 
 ### Optional Docker scheduler
 
