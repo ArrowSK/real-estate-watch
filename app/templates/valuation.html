@@ -3,12 +3,12 @@
 {% block content %}
 <section class="hero valuation-hero">
   <div class="hero-copy">
-    <p class="eyebrow">KSH local evidence → current transaction trend → property adjustments</p>
+    <p class="eyebrow">KSH local evidence → current transaction benchmark → property adjustments</p>
     <h1>{{ t.estimate_title }}</h1>
     <p class="hero-intro">{{ t.estimate_intro }}</p>
   </div>
   <div class="formula-stamp" aria-label="Method">
-    <span>LOCAL</span><b>×</b><span>TREND</span><b>×</b><span>PROPERTY</span>
+    <span>CURRENT</span><b>×</b><span>LOCAL</span><b>×</b><span>PROPERTY</span>
   </div>
 </section>
 
@@ -115,7 +115,10 @@
       <div class="data-ledger">
         <div><span>{{ t.local_year }}</span><strong>{{ baseline.local_year or '—' }}</strong></div>
         <div><span>{{ t.baseline }}</span><strong>{{ fmt(baseline.local_base_huf_m2, 0) }} HUF/m²</strong></div>
-        <div><span>{{ t.trend_factor }}</span><strong>{{ "%+.1f"|format((baseline.trend_factor - 1) * 100) }}%</strong></div>
+        {% if baseline.city_reference_huf_m2 is not none %}
+        <div><span>{{ t.city_reference }}</span><strong>{{ fmt(baseline.city_reference_huf_m2, 0) }} HUF/m²</strong></div>
+        <div><span>{{ t.local_factor }}</span><strong>{{ "%+.1f"|format((baseline.local_factor - 1) * 100) }}%</strong></div>
+        {% endif %}
         <div><span>{{ t.transactions }}</span><strong>{{ baseline.sample_size or '—' }}</strong></div>
         {% if baseline.relative_std_pct is not none %}<div><span>{{ t.relative_spread }}</span><strong>{{ fmt(baseline.relative_std_pct, 1) }}%</strong></div>{% endif %}
       </div>
