@@ -4,12 +4,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.countries.hu.provider import HungaryProvider
 from app.models import JobRun
 from app.services.fx import refresh_mnb_fx
 from app.services.health import run_self_checks
 from app.services.market import latest_market, refresh_ksh
 from app.services.notifications import send_notifications
 from app.services.self_heal import heal_reference_data
+
+
+def _tracked_hungary_series() -> list[tuple[str, str]]:
+    areas = HungaryProvider().areas()
+    return [
+        (area["code"], market)
+        for area in areas
+        for market in ("second_hand", "new")
+    ]
 
 
 def run_daily_collection(db: Session) -> dict:
@@ -37,7 +47,7 @@ def run_daily_collection(db: Session) -> dict:
     result: dict = {"ok": True, "job_id": job.id}
     try:
         result["self_heal"] = heal_reference_data(db)
-        tracked = [("BUDAPEST", "second_hand"), ("BUDAPEST", "new"), ("HU", "second_hand"), ("HU", "new")]
+        tracked = _tracked_hungary_series()
         before = {
             key: (row.period, row.price_huf_m2) if (row := latest_market(db, *key)) else None
             for key in tracked
