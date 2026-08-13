@@ -3,8 +3,10 @@ import json
 
 from app.db import SessionLocal, init_db
 from app.jobs import run_daily_collection
+from app.services.duna_house import collect_dh, probe_dh
 from app.services.fx import refresh_mnb_fx
 from app.services.health import run_self_checks
+from app.services.ksh_local import refresh_ksh_local
 from app.services.market import ensure_seed_market_data, refresh_ksh
 from app.services.self_heal import heal_reference_data
 from app.services.transaction_counts import refresh_ksh_transaction_counts
@@ -18,11 +20,20 @@ def main() -> int:
             "seed",
             "collect-market",
             "collect-counts",
+            "collect-local",
             "collect-fx",
+            "collect-dh",
+            "probe-dh",
             "daily",
             "self-check",
             "heal",
         ],
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional listing-page limit for collect-dh; ignored by other commands",
     )
     args = parser.parse_args()
     init_db()
@@ -33,8 +44,14 @@ def main() -> int:
             result = refresh_ksh(db)
         elif args.command == "collect-counts":
             result = refresh_ksh_transaction_counts(db)
+        elif args.command == "collect-local":
+            result = refresh_ksh_local(db, include_streets=True, force=True)
         elif args.command == "collect-fx":
             result = refresh_mnb_fx(db)
+        elif args.command == "collect-dh":
+            result = collect_dh(db, limit=args.limit)
+        elif args.command == "probe-dh":
+            result = probe_dh(db)
         elif args.command == "daily":
             result = run_daily_collection(db)
         elif args.command == "heal":
