@@ -23,26 +23,13 @@ jobs:
 
           path = Path('app/services/duna_house.py')
           text = path.read_text()
-          old = '''    sitemaps = [
-              line.split(":", 1)[1].strip()
-              for line in robots_text.splitlines()
-              if line.lower().startswith("sitemap:")
-          ]'''
-          # Indentation in the Python source above is intentionally matched semantically below
-          # because the live robots file itself indents its Sitemap declarations.
-          old = '''    sitemaps = [
-              line.split(":", 1)[1].strip()
-              for line in robots_text.splitlines()
-              if line.lower().startswith("sitemap:")
-          ]'''.replace('          line', '        line').replace('          for line', '        for line').replace('          if line', '        if line')
-          new = '''    sitemaps = [
-              line.strip().split(":", 1)[1].strip()
-              for line in robots_text.splitlines()
-              if line.strip().lower().startswith("sitemap:")
-          ]'''.replace('          line', '        line').replace('          for line', '        for line').replace('          if line', '        if line')
-          if old not in text:
-              raise SystemExit('expected Duna robots parser block not found')
-          path.write_text(text.replace(old, new, 1))
+          old_a = 'line.split(":", 1)[1].strip()'
+          new_a = 'line.strip().split(":", 1)[1].strip()'
+          old_b = 'if line.lower().startswith("sitemap:")'
+          new_b = 'if line.strip().lower().startswith("sitemap:")'
+          if text.count(old_a) != 1 or text.count(old_b) != 1:
+              raise SystemExit('expected unique Duna robots parser expressions not found')
+          path.write_text(text.replace(old_a, new_a, 1).replace(old_b, new_b, 1))
 
           test_path = Path('tests/test_duna_house.py')
           test_text = test_path.read_text()
