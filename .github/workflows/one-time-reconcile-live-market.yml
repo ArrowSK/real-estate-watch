@@ -22,7 +22,7 @@ jobs:
       - name: Fast-forward target branch
         run: git pull --ff-only origin reconcile/live-market-intelligence
       - name: Apply reconciler
-        run: python scripts/reconcile_live_intelligence.py
+        run: python scripts/run_reconcile_live_intelligence.py
       - name: Commit and push target branch
         run: |
           git config user.name 'Real Estate Watch maintenance'
