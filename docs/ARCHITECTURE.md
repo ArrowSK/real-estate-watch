@@ -6,7 +6,7 @@ Real Estate Watch should remain inexpensive to run, understandable to maintain, 
 
 The application uses one web process and one relational database. Data collection runs as short-lived commands. Railway can run the daily command as a Cron Job; Docker users can enable the scheduler profile or call the same command from an existing scheduler.
 
-Version 0.2 adds more data depth without adding Redis, a message broker, a JavaScript framework or a permanent worker.
+Version 0.2 adds substantially deeper market data without adding Redis, a message broker, a JavaScript framework or a permanent worker.
 
 ## Request and data flow
 
@@ -26,7 +26,7 @@ Version 0.2 adds more data depth without adding Redis, a message broker, a JavaS
              ┌────────────────┴───┐      ┌───┴─────────────────┐
              │                    │      │                     │
        KSH quarterly      KSH Ingatlan-  Duna House      policy guard
-       price + counts        adattár      observer        + sitemap
+       price + counts      adattár JSON   observer        + sitemap
              │                    │      │                     │
              └────────────────────┴──────┴─────────────────────┘
                                      │
@@ -35,7 +35,7 @@ Version 0.2 adds more data depth without adding Redis, a message broker, a JavaS
                            SQLite / PostgreSQL
 ```
 
-MNB FX, mortgage regulation and NAV transaction-cost rules are separate financial inputs. They do not alter the identity of the market-price datasets.
+MNB FX, mortgage regulation and NAV transaction-cost rules are separate financial inputs. They do not alter the identity of the market datasets.
 
 ## Web layer
 
@@ -46,7 +46,7 @@ The main market view deliberately displays two independent evidence cards:
 1. official completed-transaction value / nowcast;
 2. observed asking-market subset.
 
-Their difference is calculated, but the asking figure is not blended into the official transaction nowcast.
+Their difference can be calculated, but the asking figure is never blended into the official transaction nowcast.
 
 The valuation route accepts district, property class and optional street. It asks the service layer for the finest verified official baseline available and exposes the fallback method used.
 
@@ -58,9 +58,9 @@ Important modules:
 
 - `market.py` — quarterly KSH completed-transaction mean HUF/m²;
 - `transaction_counts.py` — matching KSH quarterly transaction counts;
-- `ksh_local.py` — annual Budapest district/street/property-class KSH benchmarks;
+- `ksh_local.py` — official KSH Ingatlanadattár client JSON normalisation for Budapest city/district/street/property class;
 - `duna_house.py` — experimental factual listing observer, policy guard and asking-market aggregates;
-- `analytics.py` — official local-nowcast calculation and explicit asking/transaction comparison;
+- `analytics.py` — official local-factor nowcast and explicit asking/transaction comparison;
 - `fx.py` — MNB EUR/HUF and USD/HUF fixing collection;
 - `valuation.py` — explicit property-level fallback adjustments;
 - `mortgage.py` — annuity and Hungary regulatory-screen calculations;
@@ -70,7 +70,7 @@ Important modules:
 - `self_heal.py` — limited safe restoration of bundled reference data;
 - `notifications.py` — independent notification channels.
 
-A collector must not silently overwrite good data after a malformed response. Parsing and validation happen before values are accepted. Only clearly transient network/HTTP failures are retried; a changed payload is treated as a source contract failure rather than retried until it happens to parse.
+A collector must not silently overwrite good data after a malformed response. Parsing and validation happen before values are accepted. Only clearly transient network/HTTP failures are retried; a changed payload is treated as a source-contract failure rather than retried until it happens to parse.
 
 ## Country layer
 
@@ -86,10 +86,10 @@ A future country should provide at least:
 - any optional asking-market providers;
 - mortgage/regulatory rules;
 - transaction-cost rules;
-- source-specific compliance manifest/review boundary;
+- source-specific compliance/review boundary;
 - translations for country-specific labels where needed.
 
-Global routes should not accumulate country-specific `if` chains. The current app is deliberately Hungary-first. The second country should be used to extract the interfaces that are genuinely common rather than inventing abstractions before two implementations exist.
+The second country should be used to extract genuinely common provider interfaces rather than guessing abstractions before two implementations exist.
 
 ## Persistence
 
@@ -98,7 +98,7 @@ SQLAlchemy supports SQLite for development and PostgreSQL for production.
 Current tables:
 
 - `market_snapshots` — quarterly official completed-transaction price series;
-- `local_benchmarks` — annual granular KSH district/street/property-class observations;
+- `local_benchmarks` — annual granular KSH Budapest city/district/street/property-class observations;
 - `observed_listings` — minimal factual identity for observed listing pages;
 - `listing_snapshots` — daily factual price/area observations;
 - `asking_market_snapshots` — publishable daily source aggregates;
@@ -108,32 +108,54 @@ Current tables:
 - `job_runs`;
 - `notification_events`.
 
-The new version 0.2 structures are additional tables only. Existing deployments can therefore create them through the current `Base.metadata.create_all()` startup path without rewriting existing columns.
+Version 0.2 introduces additional tables rather than destructive changes to existing columns. Existing deployments can therefore create them through the current `Base.metadata.create_all()` startup path without rewriting existing data.
 
 This direct-create approach should not be stretched indefinitely. Before existing production columns need to change, before user accounts are added, or before another country introduces material schema evolution, the project should add versioned database migrations.
 
-### Why raw factual listing observations are stored
+### Why factual listing observations are stored
 
-Daily aggregates alone would make it impossible to identify observed price changes, avoid counting a listing twice on the same day or rebuild an aggregate after a methodology correction.
+Daily aggregates alone would make it impossible to identify observed price changes, avoid counting a listing twice on one day or rebuild an aggregate after a methodology correction.
 
-The app therefore stores a deliberately minimal listing identity and daily factual snapshot. It does not store the creative or personal content of the source advertisement. Individual listing records are not exposed through a public browsing endpoint.
+The app therefore stores a deliberately minimal listing identity and daily factual snapshot. It does not store source descriptions, photographs or contact data. Individual observed listings are not exposed through a public browsing endpoint.
+
+## Granular KSH ingestion
+
+KSH's public Ingatlanadattár frontend currently loads a single official client dataset from `inga-data.json`. The application retrieves that dataset at a weekly interval by default and filters/materialises only supported Budapest hierarchy records.
+
+This is deliberately more efficient and less brittle than crawling rendered district and street pages. The parser validates:
+
+- JSON root shape and broad row count;
+- supported Budapest hierarchy levels;
+- observation-year range;
+- price and transaction-count ranges;
+- presence of Budapest city totals;
+- presence of all 23 Budapest district totals.
+
+Missing property fields remain absent. A live response that becomes unexpectedly small or incomplete is rejected and the previous verified local observations remain available.
 
 ## Official transaction nowcast
 
 `analytics.py` keeps the nowcast deterministic and inspectable.
 
-For a Budapest district/street local observation it uses:
+For a Budapest second-hand district/street selection it calculates:
 
 ```text
-local annual KSH HUF/m²
-× subsequent Budapest quarterly KSH completed-transaction movement
+local factor
+    = annual local/property-type KSH HUF/m²
+      / same-year Budapest all-dwelling KSH HUF/m²
+
+current nowcast
+    = latest Budapest quarterly second-hand KSH HUF/m²
+      × local factor
 ```
 
-If an exact local class is unavailable, the fallback order is explicit and eventually reaches the broad Budapest quarterly series.
+This deliberately treats the annual granular data as a relative local/property-class signal and the quarterly second-hand table as the current segment anchor.
 
-Observed Duna House asking prices are not part of the transaction-nowcast formula. The asking source appears only as an independent comparison layer.
+The granular source used here does not have the same new/second-hand split, so new-build selections do not use the local factor. They remain on the directly published quarterly new-build benchmark.
 
-See `docs/METHODOLOGY.md` for the statistical assumptions.
+Observed Duna House asking prices are not part of this formula. They are an independent comparison layer and the separation has a regression test.
+
+See `docs/METHODOLOGY.md` for assumptions and fallback order.
 
 ## Duna House provider boundary
 
@@ -143,14 +165,14 @@ Before detail-page collection it checks:
 
 - whether the provider is enabled;
 - whether the manual policy review is still within its allowed age;
-- whether the reviewed `robots.txt` still permits the configured path;
+- whether the reviewed `robots.txt` still permits the configured property path;
 - whether the configured property sitemap is still declared;
 - whether the legal/policy page still passes minimum semantic checks;
 - whether reviewed policy fingerprints changed.
 
-An unexpected change pauses collection. The collector does not respond by changing user agents, rotating endpoints or bypassing a restriction.
+An unexpected change pauses collection. The collector does not respond by changing identities, rotating proxies or bypassing a restriction.
 
-The policy guard is deliberately not part of readiness. A public deployment must still serve official KSH/MNB functionality if the experimental asking provider pauses.
+The policy guard is deliberately not a readiness dependency. A public deployment must still serve official KSH/MNB functionality if the experimental asking provider pauses.
 
 See `docs/DUNA_HOUSE_PROVIDER.md` for exact scope and limitations.
 
@@ -161,14 +183,14 @@ See `docs/DUNA_HOUSE_PROVIDER.md` for exact scope and limitations.
 1. safe reference-data repair;
 2. quarterly KSH price refresh;
 3. KSH transaction-count refresh;
-4. granular KSH refresh if its weekly interval is due;
+4. granular KSH client-dataset refresh if its weekly interval is due;
 5. broad market-change detection/notification;
 6. MNB FX refresh;
 7. guarded Duna House observed-listing collection;
 8. self-checks;
 9. job-state persistence and optional degraded-source notification.
 
-The core job is considered operational if quarterly KSH, transaction counts and MNB FX succeed. Granular KSH or the experimental asking provider can degrade the job without making official market data disappear.
+The core job is considered operational if quarterly KSH, transaction counts and MNB FX succeed. Granular KSH or the experimental asking provider can degrade the job without making official broad market data disappear.
 
 ## Failure model
 
@@ -184,7 +206,7 @@ Examples: quarterly KSH or MNB contract breaks. The source is marked degraded an
 
 ### Optional source degradation
 
-Examples: the granular annual KSH page changes or the Duna House policy guard pauses collection. The affected layer becomes stale/unavailable, but the application remains usable with the other evidence layers.
+Examples: the granular KSH client dataset changes unexpectedly or the Duna House policy guard pauses collection. The affected layer becomes stale/unavailable, but the application remains usable with other evidence layers.
 
 ### Suspicious data
 
@@ -195,10 +217,10 @@ Examples: implausible price/m², malformed structured data or an unusually large
 Automatic repair is deliberately limited to known-safe actions:
 
 - create required tables at startup;
-- restore a missing bundled KSH reference row without replacing an existing live/revised value;
+- restore a missing bundled quarterly KSH reference row without replacing an existing live/revised value;
 - retry clearly transient network failures a small number of times;
 - release a daily-job lock left running for more than two hours;
-- keep serving the last verified data after source failure;
+- keep serving last verified data after source failure;
 - mark disappeared observed listing URLs inactive without calling them sold;
 - expose degraded/stale source and policy state through Diagnostics.
 
@@ -210,19 +232,21 @@ Automatic code edits, schema guessing, fabricated substitute values, interpolati
 
 Normal CI covers deterministic parsers, calculations, routes and a booted Docker health smoke test.
 
-A second scheduled workflow checks the live external contracts. It runs the quarterly KSH collectors, granular KSH collector, MNB FX collector and a **Duna House probe** consisting of policy checks, the property sitemap and one listing-page parse.
+A second scheduled workflow checks live external contracts: quarterly KSH, transaction counts, granular KSH, MNB FX and a **Duna House probe** consisting of policy checks, sitemap discovery and one factual listing-page parse. Each result is collected before the workflow enforces the combined outcome so one broken source cannot hide diagnostics for another.
 
 The live-source workflow deliberately does not bulk-collect Duna House listings.
 
 ## Notifications
 
-Notifications are a delivery layer, not the source of truth. The database and Diagnostics page retain source state even when all notification channels are disabled or a delivery fails.
+Notifications are a delivery layer, not the source of truth. The database and Diagnostics page retain source state even when notification channels are disabled or a delivery fails.
 
 The current channels are generic webhook, Telegram and SMTP email. Each configured channel is attempted independently. Credential-bearing delivery errors are sanitised before being written to notification history.
 
 ## Scaling
 
-The default Duna House collector is intentionally bounded rather than trying to scan every discovered detail page daily. It prioritises unseen/changed pages and gradually improves source coverage while keeping request volume controlled.
+The default Duna House collector is bounded rather than attempting to visit every discovered detail page daily. It prioritises unseen/changed pages and gradually improves source coverage while keeping request volume controlled.
+
+The KSH granular layer needs only one official client-dataset request per scheduled refresh and local database upserts.
 
 This version still does not need Redis or a worker queue. If listing ingestion later grows to multiple providers, millions of rows or high-frequency refreshes, move ingestion into dedicated short-lived job services before adding queue infrastructure to the web process.
 
