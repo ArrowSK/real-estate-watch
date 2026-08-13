@@ -19,11 +19,24 @@ from app.db import SessionLocal, get_db, init_db
 from app.i18n import normalize_language, translator
 from app.jobs import run_daily_collection
 from app.models import JobRun, ProviderPolicyState, SourceHealth
-from app.services.analytics import ASKING_PROPERTY_MAP, market_comparison, transaction_nowcast
-from app.services.duna_house import asking_market_series
+from app.services.analytics import (
+    ASKING_PROPERTY_MAP,
+    LOCAL_PROPERTY_MAP,
+    market_comparison,
+    transaction_nowcast,
+)
+from app.services.duna_house import DH_SOURCE_KEY, asking_market_series
 from app.services.fx import converted_amounts, latest_fx
 from app.services.health import readiness, run_self_checks
 from app.services.ksh_local import streets_for_area
+from app.services.live_intelligence import (
+    live_comparison,
+    live_history,
+    live_signals,
+    local_district_signal,
+    local_street_signals,
+    local_years,
+)
 from app.services.market import ensure_seed_market_data, market_series
 from app.services.mortgage import calculate_mortgage
 from app.services.self_heal import heal_reference_data
@@ -197,6 +210,152 @@ def market_page(
             latest=official,
             converted=official_converted,
             chart=official_chart,
+        ),
+    )
+
+
+@app.get("/live", response_class=HTMLResponse)
+def live_market_page(
+    request: Request,
+    area: str = Query("BUDAPEST"),
+    postcode: str = Query(""),
+    market: str = Query("second_hand"),
+    property_type: str = Query("all"),
+    db: Session = Depends(get_db),
+):
+    language = language_from_request(request)
+    provider = HungaryProvider()
+    all_areas = provider.areas()
+    areas = [
+        item
+        for item in all_areas
+        if item["code"] in {"HU", "BUDAPEST"} or item["code"].startswith("BUDAPEST_")
+    ]
+    valid_areas = {item["code"] for item in areas}
+    selected_area = area if area in valid_areas else "BUDAPEST"
+    selected_market = market if market in {"second_hand", "new"} else "second_hand"
+    selected_property_type = (
+        property_type if property_type in {"all", "apartment", "house"} else "all"
+    )
+
+    district_signals = live_signals(
+        db,
+        area_code=selected_area,
+        property_type=selected_property_type,
+        market_segment=selected_market,
+    )
+    valid_postcodes = {value for value, _ in district_signals.postcodes}
+    selected_postcode = postcode if postcode in valid_postcodes else ""
+    scope_area = f"POSTCODE_{selected_postcode}" if selected_postcode else selected_area
+    signals = (
+        live_signals(
+            db,
+            area_code=scope_area,
+            property_type=selected_property_type,
+            market_segment=selected_market,
+        )
+        if selected_postcode
+        else district_signals
+    )
+    comparison = live_comparison(
+        db,
+        area_code=scope_area,
+        property_type=selected_property_type,
+        market_segment=selected_market,
+    )
+    history = live_history(
+        db,
+        area_code=scope_area,
+        property_type=selected_property_type,
+        market_segment=selected_market,
+    )
+    policy = db.scalar(
+        select(ProviderPolicyState).where(ProviderPolicyState.source_key == DH_SOURCE_KEY)
+    )
+    area_info = _area_info(areas, selected_area)
+    area_name = area_info["name_hu"] if language == "hu" else area_info["name_en"]
+    scope_label = f"{selected_postcode} · {area_name}" if selected_postcode else area_name
+    return templates.TemplateResponse(
+        request,
+        "live.html",
+        template_context(
+            request,
+            language,
+            areas=areas,
+            selected_area=selected_area,
+            selected_postcode=selected_postcode,
+            postcode_options=district_signals.postcodes,
+            selected_market=selected_market,
+            selected_property_type=selected_property_type,
+            property_types=PROPERTY_TYPES,
+            signals=signals,
+            comparison=comparison,
+            history=history,
+            scope_label=scope_label,
+            policy_ok=bool(policy and policy.status == "experimental_allowed"),
+        ),
+    )
+
+
+@app.get("/local", response_class=HTMLResponse)
+def local_market_page(
+    request: Request,
+    area: str = Query("BUDAPEST_06"),
+    property_type: str = Query("apartment"),
+    year: int | None = Query(None),
+    q: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    language = language_from_request(request)
+    provider = HungaryProvider()
+    districts = [item for item in provider.areas() if item["code"].startswith("BUDAPEST_")]
+    valid_areas = {item["code"] for item in districts}
+    selected_area = area if area in valid_areas else "BUDAPEST_06"
+    selected_property_type = (
+        property_type
+        if property_type in {"all", "apartment", "house", "panel"}
+        else "apartment"
+    )
+    source_type = LOCAL_PROPERTY_MAP[selected_property_type]
+    years = local_years(db, selected_area)
+    selected_year = year if year in years else (years[0] if years else 0)
+    search = q.strip()[:80]
+    district_signal = (
+        local_district_signal(
+            db,
+            area_code=selected_area,
+            property_type=source_type,
+            year=selected_year,
+        )
+        if selected_year
+        else None
+    )
+    street_rows = (
+        local_street_signals(
+            db,
+            area_code=selected_area,
+            property_type=source_type,
+            year=selected_year,
+            search=search,
+        )
+        if selected_year
+        else []
+    )
+    return templates.TemplateResponse(
+        request,
+        "local.html",
+        template_context(
+            request,
+            language,
+            districts=districts,
+            selected_area=selected_area,
+            property_types=PROPERTY_TYPES,
+            selected_property_type=selected_property_type,
+            years=years,
+            selected_year=selected_year,
+            search=search,
+            district_signal=district_signal,
+            street_rows=street_rows,
         ),
     )
 

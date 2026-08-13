@@ -20,6 +20,8 @@ from app.models import (
     AskingMarketSnapshot,
     ListingSnapshot,
     ObservedListing,
+    ObservedListingAttribute,
+    ObservedListingPresence,
     ProviderPolicyState,
 )
 from app.services.http import request_with_retry
@@ -60,6 +62,17 @@ class ListingFacts:
     area_code: str
     property_type: str
     market_segment: str
+    status_label: str | None = None
+    building_type: str | None = None
+    condition: str | None = None
+    construction_year: int | None = None
+    floor: str | None = None
+    lift: str | None = None
+    balcony: str | None = None
+    view: str | None = None
+    orientation: str | None = None
+    heating: str | None = None
+    energy_rating: str | None = None
 
     @property
     def price_huf_m2(self) -> float:
@@ -355,6 +368,16 @@ def _price_numeric(value) -> float | None:
     return float(digits) if digits else None
 
 
+def _label_value(text: str, labels: tuple[str, ...]) -> str | None:
+    for label in labels:
+        match = re.search(rf"{re.escape(label)}\s*:?\s*([^|]{{1,120}})", text, re.IGNORECASE)
+        if match:
+            value = re.sub(r"\s+", " ", match.group(1)).strip(" :-")
+            if value:
+                return value[:120]
+    return None
+
+
 def _area_from_postcode(postcode: str | None, locality: str | None) -> str:
     if postcode and re.fullmatch(r"1\d{3}", postcode):
         district = int(postcode[1:3])
@@ -382,6 +405,7 @@ def _property_type(external_id: str, json_type: str | None, text: str) -> str:
 
 def parse_dh_listing(html: str, url: str) -> ListingFacts:
     soup = BeautifulSoup(html, "html.parser")
+    labelled_visible = re.sub(r"\s+", " ", soup.get_text(" | ", strip=True))
     visible = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     title = " ".join(
         x for x in [soup.title.string.strip() if soup.title and soup.title.string else "", visible[:1200]] if x
@@ -436,6 +460,20 @@ def parse_dh_listing(html: str, url: str) -> ListingFacts:
     if "újépítésű" in visible.casefold() or (external_id or "").startswith("PR"):
         market_segment = "new"
 
+    building_type = _label_value(labelled_visible, ("Épület szerkezete", "Építés módja", "Szerkezet"))
+    condition = _label_value(labelled_visible, ("Ingatlan állapota", "Állapot"))
+    year_text = _label_value(labelled_visible, ("Építés éve", "Építési év"))
+    construction_year = (
+        int(year_text)
+        if year_text and re.fullmatch(r"(?:18|19|20)\d{2}", year_text.strip())
+        else None
+    )
+    status_label = (
+        "price_drop"
+        if "áresés" in visible.casefold() or "árcsökkent" in visible.casefold()
+        else None
+    )
+
     if not external_id:
         raise ValueError("Duna House listing reference number not found")
     property_type = _property_type(external_id, json_type, title)
@@ -460,6 +498,17 @@ def parse_dh_listing(html: str, url: str) -> ListingFacts:
         area_code=_area_from_postcode(postcode, locality),
         property_type=property_type,
         market_segment=market_segment,
+        status_label=status_label,
+        building_type=building_type,
+        condition=condition,
+        construction_year=construction_year,
+        floor=_label_value(labelled_visible, ("Emelet",)),
+        lift=_label_value(labelled_visible, ("Lift",)),
+        balcony=_label_value(labelled_visible, ("Erkély", "Terasz")),
+        view=_label_value(labelled_visible, ("Kilátás",)),
+        orientation=_label_value(labelled_visible, ("Tájolás",)),
+        heating=_label_value(labelled_visible, ("Fűtés",)),
+        energy_rating=_label_value(labelled_visible, ("Energetikai besorolás", "Energetika")),
     )
 
 
@@ -508,6 +557,81 @@ def probe_dh(db: Session) -> dict:
         "Duna House residential contract probe could not parse any of eight recent pages: "
         + " | ".join(failures)
     )
+
+
+def _presence_row(db: Session, listing_id: int) -> ObservedListingPresence:
+    row = db.get(ObservedListingPresence, listing_id)
+    if row is None:
+        row = ObservedListingPresence(listing_id=listing_id)
+        db.add(row)
+        db.flush()
+    return row
+
+
+def update_presence_from_sitemap(
+    db: Session,
+    existing: list[ObservedListing],
+    discovered_urls: set[str],
+    *,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    settings = get_settings()
+    now = now or _utcnow()
+    marked_inactive = 0
+    pending_missing = 0
+    recovered = 0
+    for item in existing:
+        presence = _presence_row(db, item.id)
+        if canonical_url(item.listing_url) in discovered_urls:
+            recovered += int(not item.active or presence.sitemap_miss_count > 0)
+            item.active = True
+            presence.sitemap_miss_count = 0
+            presence.missing_since_at = None
+            presence.inactive_at = None
+            presence.last_sitemap_seen_at = now
+            continue
+        presence.sitemap_miss_count += 1
+        presence.missing_since_at = presence.missing_since_at or now
+        if presence.sitemap_miss_count >= max(1, settings.dh_inactive_after_misses):
+            if item.active:
+                marked_inactive += 1
+            item.active = False
+            presence.inactive_at = presence.inactive_at or now
+        else:
+            pending_missing += 1
+    db.commit()
+    return {
+        "marked_inactive": marked_inactive,
+        "pending_missing": pending_missing,
+        "recovered": recovered,
+    }
+
+
+def _upsert_listing_attributes(
+    db: Session,
+    item: ObservedListing,
+    facts: ListingFacts,
+    now: datetime,
+) -> None:
+    row = db.get(ObservedListingAttribute, item.id)
+    if row is None:
+        row = ObservedListingAttribute(listing_id=item.id)
+        db.add(row)
+    for field in (
+        "status_label",
+        "building_type",
+        "condition",
+        "construction_year",
+        "floor",
+        "lift",
+        "balcony",
+        "view",
+        "orientation",
+        "heating",
+        "energy_rating",
+    ):
+        setattr(row, field, getattr(facts, field))
+    row.updated_at = now
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -566,6 +690,8 @@ def rebuild_asking_aggregates(db: Session, discovery_count: int | None = None) -
         areas = {item.area_code}
         if item.area_code.startswith("BUDAPEST_"):
             areas.add("BUDAPEST")
+        if item.postcode:
+            areas.add(f"POSTCODE_{item.postcode}")
         types = {item.property_type, "all"}
         for area_code in areas:
             for property_type in types:
@@ -645,12 +771,8 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
         existing = list(db.scalars(select(ObservedListing).where(ObservedListing.source_key == DH_SOURCE_KEY)))
         by_url = {canonical_url(item.listing_url): item for item in existing}
 
-        removed = 0
-        for item in existing:
-            if item.active and canonical_url(item.listing_url) not in discovered_urls:
-                item.active = False
-                removed += 1
-        db.commit()
+        presence_summary = update_presence_from_sitemap(db, existing, discovered_urls)
+        removed = presence_summary["marked_inactive"]
 
         def priority(entry: SitemapEntry) -> tuple[int, float]:
             item = by_url.get(entry.url)
@@ -722,6 +844,13 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
                 item.active = True
                 item.quality_state = "usable"
 
+            presence = _presence_row(db, item.id)
+            presence.sitemap_miss_count = 0
+            presence.missing_since_at = None
+            presence.inactive_at = None
+            presence.last_sitemap_seen_at = now
+            _upsert_listing_attributes(db, item, facts, now)
+
             snapshot = db.scalar(
                 select(ListingSnapshot).where(
                     ListingSnapshot.listing_id == item.id,
@@ -771,6 +900,8 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
             "updated_today": updated_today,
             "errors": errors,
             "removed": removed,
+            "pending_missing": presence_summary["pending_missing"],
+            "recovered": presence_summary["recovered"],
             "aggregates": aggregates,
         }
     except Exception as exc:
