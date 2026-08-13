@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{{ t.live_market }} · {{ t.app_name }}{% endblock %}
+{% block content %}
+<section class="hero ledger-hero">
+  <div>
+    <div class="eyebrow-row"><span class="signal-dot"></span><p class="eyebrow">Duna House · {{ t.subset_badge }}</p></div>
+    <h1>{{ t.observed_title }}</h1>
+    <p class="hero-copy">{{ t.observed_intro }}</p>
+  </div>
+  <div class="hero-stamps">
+    <span class="stamp warn">{{ t.experimental_badge }}</span>
+    <span class="stamp {{ 'ok' if policy_ok else 'bad' }}">{{ icon('shield', 15) }} {{ t.policy_ok if policy_ok else t.policy_paused }}</span>
+  </div>
+</section>
+
+<form class="filter-bar technical" method="get" action="/live">
+  <label>{{ t.area }}
+    <select name="area">
+      {% for item in areas %}
+      <option value="{{ item.code }}" {% if item.code == selected_area %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.property_type }}
+    <select name="market_class">
+      {% for value in ['condominium','panel','family_house'] %}
+      <option value="{{ value }}" {% if value == selected_class %}selected{% endif %}>{{ t[value] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.market }}
+    <select name="segment">
+      <option value="second_hand" {% if selected_segment == 'second_hand' %}selected{% endif %}>{{ t.second_hand }}</option>
+      <option value="new" {% if selected_segment == 'new' %}selected{% endif %}>{{ t.new }}</option>
+    </select>
+  </label>
+  <button type="submit">{{ t.calculate }}</button>
+</form>
+
+{% if latest %}
+<section class="metric-strip live-strip">
+  <article class="metric-cell lead">
+    <div class="metric-kicker">{{ icon('live', 18) }} {{ t.median_asking }}</div>
+    <div class="metric-value">{{ fmt(latest.median_huf_m2, 0) }} <small>HUF/m²</small></div>
+    <div class="metric-foot">{{ latest.snapshot_date }}</div>
+  </article>
+  <article class="metric-cell">
+    <div class="metric-kicker">{{ icon('sample', 18) }} {{ t.observed_sample }}</div>
+    <div class="metric-value compact">{{ latest.active_count }}</div>
+    <div class="metric-foot">{{ latest.excluded_count }} excluded by quality rules</div>
+  </article>
+  <article class="metric-cell">
+    <div class="metric-kicker">{{ icon('trend', 18) }} {{ t.asking_band }}</div>
+    <div class="metric-value compact">{{ fmt(latest.p25_huf_m2, 0) }}–{{ fmt(latest.p75_huf_m2, 0) }}</div>
+    <div class="metric-foot">HUF/m² · P25–P75</div>
+  </article>
+  <article class="metric-cell">
+    <div class="metric-kicker">{{ t.price_cuts }}</div>
+    <div class="metric-value compact">{{ "%.1f"|format(latest.price_cut_share * 100) }}%</div>
+    <div class="metric-foot">{{ latest.price_cut_count }} observed reductions</div>
+  </article>
+</section>
+
+<div class="analysis-grid">
+  <section class="panel chart-panel">
+    <div class="panel-head">
+      <div><p class="eyebrow">{{ selected_area }}</p><h2>{{ t.live_market }}</h2></div>
+      <span class="unit-chip">HUF/m² · median</span>
+    </div>
+    <div class="chart-wrap"><canvas data-market-chart data-series='{{ history | tojson }}' aria-label="{{ t.live_market }}"></canvas></div>
+  </section>
+  <aside class="panel signal-panel">
+    <div class="signal-row"><span>{{ t.new_7d }}</span><strong>{{ latest.new_7d_count }}</strong></div>
+    <div class="signal-row"><span>{{ t.observed_days }}</span><strong>{{ "%.0f"|format(latest.median_observed_days) }}</strong></div>
+    {% if asking_gap is not none %}
+    <div class="signal-row emphasis"><span>{{ t.asking_gap }}</span><strong>{{ "%+.1f"|format(asking_gap) }}%</strong></div>
+    <p class="microcopy">{{ t.asking_gap_note }}</p>
+    {% endif %}
+    <p class="microcopy">{{ t.observed_days_note }}</p>
+  </aside>
+</div>
+{% else %}
+<section class="empty-ledger">
+  {{ icon('sample', 34) }}
+  <h2>{{ t.sample_suppressed }}</h2>
+  <p>{{ t.observed_intro }}</p>
+</section>
+{% endif %}
+
+<section class="provenance-band">
+  <div>{{ icon('shield', 19) }}<strong>{{ t.source_policy }}</strong><span>{{ t.policy_ok if policy_ok else t.policy_paused }}</span></div>
+  <div>{{ icon('source', 19) }}<strong>{{ t.quality }}</strong><span>{{ t.listing_privacy }}</span></div>
+</section>
+{% endblock %}
