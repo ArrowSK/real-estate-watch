@@ -1,33 +1,42 @@
+{% from "_icons.html" import icon %}
 <!doctype html>
 <html lang="{{ lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#182624">
   <title>{% block title %}{{ t.app_name }}{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', path='mark.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
   <script defer src="{{ url_for('static', path='app.js') }}"></script>
 </head>
 <body>
+  <div class="page-grid" aria-hidden="true"></div>
   <header class="site-header">
     <div class="wrap header-row">
-      <a class="brand" href="/">
-        <span class="brand-mark">RE</span>
+      <a class="brand" href="/" aria-label="{{ t.app_name }}">
+        <img class="brand-mark" src="{{ url_for('static', path='mark.svg') }}" alt="">
         <span>
           <strong>{{ t.app_name }}</strong>
           <small>{{ t.tagline }}</small>
         </span>
       </a>
-      <a class="language" href="/language/{{ 'hu' if lang == 'en' else 'en' }}?next={{ request.url.path }}">{{ t.language }}</a>
+      <div class="header-meta">
+        <span class="country-stamp">HU / HUF</span>
+        <a class="language" href="/language/{{ 'hu' if lang == 'en' else 'en' }}?next={{ request.url.path }}">{{ t.language }}</a>
+      </div>
     </div>
   </header>
 
-  <nav class="top-nav">
+  <nav class="top-nav" aria-label="Primary">
     <div class="wrap nav-row">
-      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">{{ t.market }}</a>
-      <a href="/valuation" class="{% if request.url.path == '/valuation' %}active{% endif %}">{{ t.valuation }}</a>
-      <a href="/mortgage" class="{% if request.url.path == '/mortgage' %}active{% endif %}">{{ t.mortgage }}</a>
-      <a href="/diagnostics" class="{% if request.url.path == '/diagnostics' %}active{% endif %}">{{ t.diagnostics }}</a>
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">{{ icon('market', 18) }}<span>{{ t.market }}</span></a>
+      <a href="/live" class="{% if request.url.path == '/live' %}active{% endif %}">{{ icon('live', 18) }}<span>{{ t.live_market }}</span></a>
+      <a href="/local" class="{% if request.url.path == '/local' %}active{% endif %}">{{ icon('local', 18) }}<span>{{ t.local_market }}</span></a>
+      <a href="/valuation" class="{% if request.url.path == '/valuation' %}active{% endif %}">{{ icon('valuation', 18) }}<span>{{ t.valuation }}</span></a>
+      <a href="/mortgage" class="{% if request.url.path == '/mortgage' %}active{% endif %}">{{ icon('mortgage', 18) }}<span>{{ t.mortgage }}</span></a>
+      <a href="/diagnostics" class="{% if request.url.path == '/diagnostics' %}active{% endif %}">{{ icon('diagnostics', 18) }}<span>{{ t.diagnostics }}</span></a>
     </div>
   </nav>
 
@@ -37,7 +46,7 @@
 
   <footer class="site-footer">
     <div class="wrap footer-row">
-      <span>Real Estate Watch v{{ version }}</span>
+      <span>Real Estate Watch <span class="mono">v{{ version }}</span></span>
       <span>{{ t.footer_country }}</span>
     </div>
   </footer>
