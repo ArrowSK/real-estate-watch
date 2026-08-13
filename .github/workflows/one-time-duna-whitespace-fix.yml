@@ -1,0 +1,62 @@
+name: One-time Duna robots whitespace fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-time-duna-whitespace-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply reviewed narrow patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/services/duna_house.py')
+          text = path.read_text()
+          old = '''    sitemaps = [
+              line.split(":", 1)[1].strip()
+              for line in robots_text.splitlines()
+              if line.lower().startswith("sitemap:")
+          ]'''
+          # Indentation in the Python source above is intentionally matched semantically below
+          # because the live robots file itself indents its Sitemap declarations.
+          old = '''    sitemaps = [
+              line.split(":", 1)[1].strip()
+              for line in robots_text.splitlines()
+              if line.lower().startswith("sitemap:")
+          ]'''.replace('          line', '        line').replace('          for line', '        for line').replace('          if line', '        if line')
+          new = '''    sitemaps = [
+              line.strip().split(":", 1)[1].strip()
+              for line in robots_text.splitlines()
+              if line.strip().lower().startswith("sitemap:")
+          ]'''.replace('          line', '        line').replace('          for line', '        for line').replace('          if line', '        if line')
+          if old not in text:
+              raise SystemExit('expected Duna robots parser block not found')
+          path.write_text(text.replace(old, new, 1))
+
+          test_path = Path('tests/test_duna_house.py')
+          test_text = test_path.read_text()
+          test_old = 'Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties'
+          test_new = '    Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties'
+          if test_old not in test_text:
+              raise SystemExit('expected Duna robots fixture not found')
+          test_path.write_text(test_text.replace(test_old, test_new, 1))
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'Real Estate Watch maintenance'
+          git config user.email '56678503+ArrowSK@users.noreply.github.com'
+          git add app/services/duna_house.py tests/test_duna_house.py
+          git diff --cached --check
+          git commit -m 'Handle indented Duna House sitemap declarations'
+          git push
