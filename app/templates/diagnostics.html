@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ t.diagnostics }} · {{ t.app_name }}{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <p class="eyebrow">{{ t.operations }}</p>
+  <h1>{{ t.diagnostics }}</h1>
+  <p class="muted">{{ t.diagnostics_intro }}</p>
+</section>
+
+<section class="card">
+  <h2>{{ t.self_checks }}</h2>
+  <div class="diagnostic-list">
+    {% for check in checks %}
+    <div class="diagnostic-row">
+      <span class="dot {{ 'ok' if check.ok else ('soft' if check.soft else 'bad') }}"></span>
+      <div><strong>{{ check.key }}</strong><small>{{ check.detail }}</small></div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <h2>{{ t.source_status }}</h2>
+  {% if sources %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t.source }}</th><th>{{ t.state }}</th><th>{{ t.last_success }}</th><th>{{ t.failures }}</th><th>{{ t.last_error }}</th></tr></thead>
+      <tbody>
+      {% for source in sources %}
+      <tr>
+        <td>{{ source.source_key }}</td>
+        <td><span class="pill {{ source.state }}">{{ source.state }}</span></td>
+        <td>{{ source.last_success_at or '—' }}</td>
+        <td>{{ source.consecutive_failures }}</td>
+        <td class="error-cell">{{ source.last_error or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">{{ t.no_source_attempt }}</p>
+  {% endif %}
+</section>
+
+<section class="notice">
+  <p><strong>{{ t.daily_collection }}:</strong> <code>python -m app.cli daily</code></p>
+  <p class="small">{{ t.daily_collection_note }}</p>
+</section>
+{% endblock %}
