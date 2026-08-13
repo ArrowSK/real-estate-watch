@@ -32,13 +32,20 @@
     <label>{{ t.fixation }}
       <select name="fixation_years">
         {% set f = values.fixation_years|default(10) %}
-        <option value="1" {% if f == 1 %}selected{% endif %}>&lt; 5 years</option>
-        <option value="5" {% if f == 5 %}selected{% endif %}>5–9 years</option>
-        <option value="10" {% if f == 10 %}selected{% endif %}>10+ years / fixed</option>
+        <option value="1" {% if f == 1 %}selected{% endif %}>{{ '5 évnél rövidebb' if lang == 'hu' else '< 5 years' }}</option>
+        <option value="5" {% if f == 5 %}selected{% endif %}>{{ '5–9 év' if lang == 'hu' else '5–9 years' }}</option>
+        <option value="10" {% if f == 10 %}selected{% endif %}>{{ '10+ év / végig fix' if lang == 'hu' else '10+ years / fixed' }}</option>
       </select>
     </label>
-    <label class="check-row"><input type="checkbox" name="first_home" value="true" {% if values.first_home|default(false) %}checked{% endif %}><span>{{ t.first_home }}</span></label>
-    <label class="check-row"><input type="checkbox" name="green" value="true" {% if values.green|default(false) %}checked{% endif %}><span>{{ t.green }}</span></label>
+    <label class="check-row">
+      <input type="checkbox" name="first_home" value="true" {% if values.first_home|default(false) %}checked{% endif %}>
+      <span>{{ 'Megfelelek az MNB elsőlakás-vásárlói feltételeinek' if lang == 'hu' else 'I meet the MNB qualifying first-home criteria' }}</span>
+    </label>
+    <label class="check-row">
+      <input type="checkbox" name="green" value="true" {% if values.green|default(false) %}checked{% endif %}>
+      <span>{{ 'Megfelel a minősülő zöld lakáscél feltételeinek' if lang == 'hu' else 'The loan/property meets the qualifying green criteria' }}</span>
+    </label>
+    <p class="small muted">{{ 'Ezeket a feltételeket az alkalmazás nem tudja okiratokból ellenőrizni; csak akkor jelölje be, ha a konkrét ügylet valóban megfelel.' if lang == 'hu' else 'The app cannot verify these conditions from title or energy documents. Select them only when the actual transaction qualifies.' }}</p>
     <button type="submit">{{ t.calculate }}</button>
   </form>
 
