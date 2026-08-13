@@ -85,7 +85,6 @@ def _clean_legal_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
-    # Header/footer content changes frequently and is not the reviewed policy body.
     for selector in ("header", "footer", "nav"):
         for tag in soup.select(selector):
             tag.decompose()
@@ -97,13 +96,11 @@ def _robots_contract(robots_text: str, sitemap_url: str) -> tuple[bool, list[str
     parser = robotparser.RobotFileParser()
     parser.parse(robots_text.splitlines())
     allowed = parser.can_fetch(DH_USER_AGENT, "https://dh.hu/elado-ingatlan/lakas-haz")
-    # robots.txt permits optional whitespace before directives. Duna House currently indents
-    # its Sitemap lines, so strip each line before inspecting the directive name.
     normalized_lines = [line.strip() for line in robots_text.splitlines()]
     sitemaps = [
-        line.strip().split(":", 1)[1].strip()
+        line.split(":", 1)[1].strip()
         for line in normalized_lines
-        if line.strip().lower().startswith("sitemap:")
+        if line.lower().startswith("sitemap:")
     ]
     normalized = {canonical_url(item) for item in sitemaps}
     return allowed and canonical_url(sitemap_url) in normalized, sitemaps
@@ -178,7 +175,6 @@ def check_dh_policy(db: Session) -> dict:
             db.commit()
         elif state.robots_hash != robots_hash or state.legal_hash != legal_hash:
             if state.reviewed_on and state.reviewed_on < DH_POLICY_REVIEWED_ON:
-                # A maintainer explicitly advanced the review date in code after reviewing the change.
                 state.status = "experimental_allowed"
                 state.reviewed_on = DH_POLICY_REVIEWED_ON
                 state.robots_hash = robots_hash
@@ -276,6 +272,50 @@ def discover_dh_listings() -> list[SitemapEntry]:
     return parse_sitemap(response.text)
 
 
+def _external_id_from_url(url: str) -> str | None:
+    parts = [part for part in urlparse(url).path.split("/") if part]
+    try:
+        index = parts.index("ingatlan")
+    except ValueError:
+        return None
+    if index + 1 >= len(parts):
+        return None
+    candidate = parts[index + 1].upper()
+    return candidate if re.fullmatch(r"[A-Z]{1,4}\d{5,8}", candidate) else None
+
+
+def _extract_external_id(text: str, url: str) -> str | None:
+    from_url = _external_id_from_url(url)
+    if from_url:
+        return from_url
+    for candidate in (text, url):
+        match = re.search(r"\b[A-Z]{1,4}\d{5,8}\b", candidate, re.IGNORECASE)
+        if match:
+            return match.group(0).upper()
+    return None
+
+
+def _property_type_from_id(external_id: str) -> str:
+    prefix = re.match(r"[A-Z]+", external_id.upper())
+    value = prefix.group(0) if prefix else ""
+    if value == "LK":
+        return "apartment"
+    if value in {"HZ", "H"}:
+        return "house"
+    if value == "PR":
+        return "project"
+    return "unknown"
+
+
+def _residential_entries(entries: list[SitemapEntry]) -> list[SitemapEntry]:
+    return [
+        entry
+        for entry in entries
+        if (external_id := _external_id_from_url(entry.url))
+        and _property_type_from_id(external_id) in {"apartment", "house"}
+    ]
+
+
 def _jsonld_objects(soup: BeautifulSoup) -> list[dict]:
     output: list[dict] = []
     for node in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -315,16 +355,6 @@ def _price_numeric(value) -> float | None:
     return float(digits) if digits else None
 
 
-def _extract_external_id(text: str, url: str) -> str | None:
-    candidates = [text, url]
-    pattern = re.compile(r"\b(?:PR|LK|HZ|H|M)\d{6}(?:/[A-Z]{1,3}/\d+)?\b", re.IGNORECASE)
-    for candidate in candidates:
-        match = pattern.search(candidate)
-        if match:
-            return match.group(0).upper()
-    return None
-
-
 def _area_from_postcode(postcode: str | None, locality: str | None) -> str:
     if postcode and re.fullmatch(r"1\d{3}", postcode):
         district = int(postcode[1:3])
@@ -339,14 +369,9 @@ def _area_from_postcode(postcode: str | None, locality: str | None) -> str:
 
 
 def _property_type(external_id: str, json_type: str | None, text: str) -> str:
-    prefix = re.match(r"[A-Z]+", external_id)
-    value = prefix.group(0) if prefix else ""
-    if value == "LK":
-        return "apartment"
-    if value in {"HZ", "H"}:
-        return "house"
-    if value == "PR":
-        return "project"
+    direct = _property_type_from_id(external_id)
+    if direct != "unknown":
+        return direct
     probe = f"{json_type or ''} {text[:500]}".casefold()
     if "apartment" in probe or "lakás" in probe:
         return "apartment"
@@ -413,6 +438,9 @@ def parse_dh_listing(html: str, url: str) -> ListingFacts:
 
     if not external_id:
         raise ValueError("Duna House listing reference number not found")
+    property_type = _property_type(external_id, json_type, title)
+    if property_type not in {"apartment", "house"}:
+        raise ValueError(f"Duna House reference {external_id} is outside the residential observer scope")
     if price is None or not 1_000_000 <= price <= 5_000_000_000:
         raise ValueError("Duna House asking price missing or outside safety range")
     if area is None or not 10 <= area <= 3000:
@@ -421,8 +449,6 @@ def parse_dh_listing(html: str, url: str) -> ListingFacts:
     if not 50_000 <= price_m2 <= 25_000_000:
         raise ValueError("Duna House price per square metre outside safety range")
 
-    area_code = _area_from_postcode(postcode, locality)
-    prop_type = _property_type(external_id, json_type, title)
     return ListingFacts(
         external_id=external_id,
         listing_url=canonical_url(url),
@@ -431,8 +457,8 @@ def parse_dh_listing(html: str, url: str) -> ListingFacts:
         rooms=rooms,
         postcode=postcode,
         locality=locality,
-        area_code=area_code,
-        property_type=prop_type,
+        area_code=_area_from_postcode(postcode, locality),
+        property_type=property_type,
         market_segment=market_segment,
     )
 
@@ -441,29 +467,47 @@ def probe_dh(db: Session) -> dict:
     policy = check_dh_policy(db)
     if not policy.get("ok"):
         return {"ok": False, "policy": policy}
-    entries = discover_dh_listings()
-    first = max(entries, key=lambda item: item.lastmod or datetime.min.replace(tzinfo=timezone.utc))
-    response = request_with_retry(
-        "GET",
-        first.url,
-        timeout=get_settings().http_timeout_seconds,
-        headers={"User-Agent": DH_USER_AGENT},
+    all_entries = discover_dh_listings()
+    entries = _residential_entries(all_entries)
+    if not entries:
+        raise ValueError("Duna House sitemap contained no residential LK/HZ property references")
+    ranked = sorted(
+        entries,
+        key=lambda item: item.lastmod or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
     )
-    facts = parse_dh_listing(response.text, first.url)
-    return {
-        "ok": True,
-        "policy": {k: v for k, v in policy.items() if k not in {"robots_hash", "legal_hash"}},
-        "sitemap_entries": len(entries),
-        "sample": {
-            "external_id": facts.external_id,
-            "area_code": facts.area_code,
-            "property_type": facts.property_type,
-            "market_segment": facts.market_segment,
-            "has_price": facts.asking_price_huf > 0,
-            "has_area": facts.floor_area_m2 > 0,
-            "has_rooms": facts.rooms is not None,
-        },
-    }
+    failures: list[str] = []
+    for entry in ranked[:8]:
+        try:
+            response = request_with_retry(
+                "GET",
+                entry.url,
+                timeout=get_settings().http_timeout_seconds,
+                attempts=2,
+                headers={"User-Agent": DH_USER_AGENT},
+            )
+            facts = parse_dh_listing(response.text, entry.url)
+            return {
+                "ok": True,
+                "policy": {k: v for k, v in policy.items() if k not in {"robots_hash", "legal_hash"}},
+                "sitemap_entries": len(all_entries),
+                "residential_entries": len(entries),
+                "sample": {
+                    "external_id": facts.external_id,
+                    "area_code": facts.area_code,
+                    "property_type": facts.property_type,
+                    "market_segment": facts.market_segment,
+                    "has_price": facts.asking_price_huf > 0,
+                    "has_area": facts.floor_area_m2 > 0,
+                    "has_rooms": facts.rooms is not None,
+                },
+            }
+        except Exception as exc:
+            failures.append(str(exc)[:180])
+    raise ValueError(
+        "Duna House residential contract probe could not parse any of eight recent pages: "
+        + " | ".join(failures)
+    )
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -479,7 +523,12 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 def _latest_snapshots(db: Session) -> tuple[dict[int, ListingSnapshot], dict[int, ListingSnapshot | None]]:
     snapshots = list(
-        db.scalars(select(ListingSnapshot).order_by(ListingSnapshot.listing_id, ListingSnapshot.snapshot_date.desc()))
+        db.scalars(
+            select(ListingSnapshot).order_by(
+                ListingSnapshot.listing_id,
+                ListingSnapshot.snapshot_date.desc(),
+            )
+        )
     )
     latest: dict[int, ListingSnapshot] = {}
     previous: dict[int, ListingSnapshot | None] = {}
@@ -501,6 +550,7 @@ def rebuild_asking_aggregates(db: Session, discovery_count: int | None = None) -
                 ObservedListing.source_key == DH_SOURCE_KEY,
                 ObservedListing.active.is_(True),
                 ObservedListing.quality_state == "usable",
+                ObservedListing.property_type.in_(("apartment", "house")),
             )
         )
     )
@@ -587,7 +637,10 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
         return {"ok": False, "paused": True, "policy": policy}
 
     try:
-        entries = discover_dh_listings()
+        all_entries = discover_dh_listings()
+        entries = _residential_entries(all_entries)
+        if not entries:
+            raise ValueError("Duna House sitemap contained no residential LK/HZ property references")
         discovered_urls = {entry.url for entry in entries}
         existing = list(db.scalars(select(ObservedListing).where(ObservedListing.source_key == DH_SOURCE_KEY)))
         by_url = {canonical_url(item.listing_url): item for item in existing}
@@ -612,7 +665,7 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
         now = _utcnow()
         today = now.date()
         imported = 0
-        skipped = 0
+        updated_today = 0
         errors = 0
 
         for index, entry in enumerate(candidates[:run_limit]):
@@ -694,24 +747,28 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
                 snapshot.floor_area_m2 = facts.floor_area_m2
                 snapshot.price_huf_m2 = facts.price_huf_m2
                 snapshot.rooms = facts.rooms
-                skipped += 1
+                updated_today += 1
             db.commit()
 
         aggregates = rebuild_asking_aggregates(db, discovery_count=len(entries))
-        if imported == 0 and errors >= run_limit:
-            raise RuntimeError("No Duna House listing page could be parsed in this run")
+        if imported == 0 and updated_today == 0 and errors >= min(run_limit, len(candidates)):
+            raise RuntimeError("No residential Duna House listing page could be parsed in this run")
         mark_success(
             db,
             DH_SOURCE_KEY,
-            f"{len(entries)} discovered; {imported} new daily snapshots; {errors} parse/fetch errors",
+            (
+                f"{len(entries)} residential URLs from {len(all_entries)} sitemap entries; "
+                f"{imported} new daily snapshots; {errors} parse/fetch errors"
+            ),
         )
         db.commit()
         return {
             "ok": True,
-            "discovered": len(entries),
+            "sitemap_discovered": len(all_entries),
+            "residential_discovered": len(entries),
             "processed": min(run_limit, len(candidates)),
             "imported": imported,
-            "updated_today": skipped,
+            "updated_today": updated_today,
             "errors": errors,
             "removed": removed,
             "aggregates": aggregates,
