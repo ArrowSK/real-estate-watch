@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     ksh_market_url: str = "https://www.ksh.hu/stadat_files/lak/en/lak0052.html"
     ksh_transactions_url: str = "https://www.ksh.hu/stadat_files/lak/en/lak0053.html"
     ksh_local_url: str = "https://www.ksh.hu/s/ingatlanadattar/adattar"
+    ksh_local_data_url: str = "https://www.ksh.hu/s/ingatlanadattar/inga-data.json"
     ksh_local_refresh_hours: int = 168
     mnb_fx_url: str = "https://www.mnb.hu/arfolyamok"
 
