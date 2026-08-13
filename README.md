@@ -1,57 +1,145 @@
 # Real Estate Watch
 
-Real Estate Watch is a small web application for checking residential property benchmarks, testing property-specific adjustments and calculating mortgage affordability. Hungary is the first supported country. The country-specific parts are isolated so that another market can be added later without replacing the application itself.
+Real Estate Watch is a small self-hosted application for residential market analysis, property valuation and mortgage affordability. Hungary is the first supported country, but country-specific geography, regulation and tax logic are kept out of the general web layer so another market can be added later.
 
 The interface is bilingual. English is the default; Hungarian can be selected from the header.
 
-## What works in the first release
+Version 0.2 changes the market model substantially: it no longer stops at a broad Budapest transaction benchmark. It combines **official completed-transaction evidence**, **granular Budapest district/street evidence**, and a separately labelled **observed asking-market subset**. Those layers are compared, never silently blended.
 
-- Budapest, broad Hungarian statistical regions and the national market view.
-- Separate second-hand and new-build transaction benchmarks.
-- Historical HUF/m² chart using official KSH quarterly data.
-- Official KSH transaction counts attached to matching price observations after a live refresh.
-- HUF as the main currency, with smaller EUR and USD comparison values from the latest official MNB rates.
-- A property valuation worksheet with explicit, visible adjustment assumptions.
-- A Hungarian mortgage calculator with annuity payments, total interest and +1/+2/+3 percentage-point stress tests.
-- Indicative MNB HFM/JTM debt-brake checks using the current 2026 thresholds.
-- General Hungarian property transfer-tax calculation under the NAV rule.
-- Docker and Railway-ready deployment.
-- Daily collection command and a low-overhead local scheduler.
-- Optional notifications through a generic webhook, Telegram and SMTP email.
-- Source diagnostics, readiness/liveness endpoints, source-freshness checks, bounded retry, last-known-good fallbacks and data sanity checks.
-- A scheduled GitHub Actions source-contract check that verifies the live KSH and MNB parsers independently of a deployment.
-- English and Hungarian UI.
+## What the application shows
 
-## What is deliberately not faked
+The main market page separates two questions.
 
-Two parts of the full product are not yet presented as complete:
+**Transaction-value evidence** comes from KSH. For Budapest districts, the app can use annual district or street-level KSH Ingatlanadattár statistics and move that local benchmark forward with the subsequent official Budapest quarterly completed-transaction trend.
 
-1. **Live asking-price median and listing intelligence.** The current build uses KSH completed-transaction data. KSH's table provides a mean price per m², not a median. A live listing feed will be added only when there is a source we can use reliably and on acceptable terms. The app does not scrape a portal simply to make the dashboard look complete.
-2. **Current bank offers.** The mortgage calculator applies the user's entered rate and the current MNB debt-brake framework. It does not invent a list of bank products. A bank-product provider belongs behind the existing provider boundary once a maintainable source is selected.
+**Observed asking-market evidence** comes from an experimental Duna House observer. It uses the source's property sitemap for discovery, keeps only factual fields required for statistics, and publishes aggregate medians/ranges rather than rebuilding a listing portal.
 
-This distinction is intentional. A stale or invented financial number is worse than a clearly marked missing feature.
+The dashboard can therefore show, where data are available:
 
-Personal saved watchlists are also not exposed in the public web UI yet. The first release can notify on changes in the supported benchmark series. Persistent per-user watchlists need an authentication and ownership model before a public deployment should accept them.
+- current transaction-value nowcast in HUF/m²;
+- observed asking median in HUF/m²;
+- the asking/transaction-value gap;
+- six-month official transaction movement;
+- observed asking movement after enough daily history has accumulated;
+- official transaction count;
+- asking sample size, P25/P75 and confidence;
+- EUR/USD comparison values from MNB FX.
 
-The implementation sequence and remaining data-source decisions are documented in [ROADMAP.md](ROADMAP.md).
+A missing asking layer does not replace or disable the official transaction layer.
 
-## Market data included with the application
+## Granular Budapest analysis
 
-The repository contains source-attributed KSH reference data so that the application is useful immediately after first start, even if the live KSH page is temporarily unavailable. The fallback covers Budapest and the national series through 2026 Q1, plus the latest available regional observations. Missing KSH values remain missing; the app does not interpolate them.
+KSH Ingatlanadattár is collected separately from the quarterly KSH series. For Budapest it can provide district and, where published, street-level completed-sale statistics by broad property class:
 
-The daily collector then attempts to refresh the official KSH price and transaction-count tables and the latest official MNB EUR/HUF and USD/HUF rates. Verified observations are stored in the database. Live KSH values can revise preliminary quarters. Bundled fallback data only fill missing rows and never overwrite a value already collected from KSH.
+- family house;
+- multi-unit condominium apartment;
+- panel apartment;
+- all dwellings.
 
-If a source fails, the application keeps the last known-good observation and marks the source as degraded in Diagnostics.
+The valuation worksheet can therefore start from a much more local source than a city-wide average. It exposes exactly which fallback was used and which year the local benchmark belongs to.
 
-Official sources used by the Hungary module:
+The current local nowcast formula is intentionally simple and inspectable:
 
-- KSH STADAT 18.2.2.14, mean price per m² by region and settlement type: `https://www.ksh.hu/stadat_files/lak/en/lak0052.html`
-- KSH STADAT 18.2.2.15, number of housing transactions by region and settlement type: `https://www.ksh.hu/stadat_files/lak/en/lak0053.html`
+```text
+local annual KSH HUF/m²
+× subsequent official Budapest quarterly transaction movement
+= current transaction-value nowcast
+```
+
+The observed asking median is **not** an input to that formula. It is shown as an independent comparison.
+
+The statistical assumptions and fallback order are documented in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+
+## Experimental Duna House asking observer
+
+The Duna House provider is deliberately more cautious than an ordinary scraper.
+
+At the project's manual review on 13 August 2026, Duna House's public `robots.txt` allowed crawling and declared a dedicated property sitemap. The reviewed legal/policy page was not treated as an open-data licence. The project therefore describes this source as an **experimental observed subset**, not open data and not the whole Hungarian asking market.
+
+The collector stores only factual fields needed for aggregation:
+
+- source reference number and URL;
+- locality/postcode/district;
+- broad property class;
+- new/second-hand status when determinable;
+- rooms;
+- asking price;
+- floor area;
+- first/last seen and source `lastmod` timestamps.
+
+It does **not** store descriptions, photos, plans, seller/agent names, phone numbers or email addresses. Individual observed listings are not exposed through a public browsing API.
+
+Before collection, a policy guard checks the reviewed robots/sitemap contract and source policy fingerprints. Collection pauses if those assumptions change unexpectedly or if the dated manual review expires. The collector does not try to evade a changed restriction.
+
+The full operational and compliance boundary is in [docs/DUNA_HOUSE_PROVIDER.md](docs/DUNA_HOUSE_PROVIDER.md).
+
+## What works in 0.2
+
+- English-first and Hungarian UI.
+- Responsive market-ledger visual design with original SVG icon assets and no frontend build tool.
+- Budapest districts, broad Hungarian statistical regions and national market views.
+- Separate second-hand and new-build transaction series.
+- Official KSH quarterly completed-transaction mean HUF/m².
+- Official matching KSH transaction counts.
+- KSH Ingatlanadattár district/street/property-class benchmarks for Budapest.
+- Transparent local transaction-value nowcast.
+- Experimental Duna House asking-market observation with median, mean, P25/P75, sample, price cuts, new observations, coverage and confidence.
+- Strict asking-versus-transaction separation and explicit gap calculation.
+- Property valuation worksheet with optional Budapest street and optional property asking price.
+- Visible fallback property-adjustment coefficients.
+- HUF as the main currency with MNB EUR/USD comparison values.
+- Hungarian mortgage calculator with annuity payment, total interest and +1/+2/+3 percentage-point stress scenarios.
+- Indicative MNB HFM/JTM debt-brake screen.
+- General NAV property-transfer-tax calculation.
+- SQLite development and PostgreSQL production persistence.
+- Docker, Docker Compose and Railway deployment paths.
+- Short-lived daily collection job; no permanent worker required.
+- Generic webhook, Telegram and SMTP notification channels.
+- Self-checks, source health, source freshness and job history.
+- Bounded transient retry and last-known-good behavior.
+- Experimental-source policy guard.
+- Normal CI with lint/tests/Docker boot smoke test.
+- Separate scheduled live source-contract workflow.
+
+## What is still deliberately incomplete
+
+### Current bank-product comparison
+
+The mortgage calculator uses a rate entered by the user and applies the current implemented regulatory screen. It does not invent bank products or label a manually entered rate as a current offer.
+
+A future mortgage-product provider needs a maintainable interface that preserves institution, product, THM/APR, fixation, term, amount limits, eligibility conditions and source update date.
+
+### Asking-market history before installation
+
+The Duna House observer builds daily history prospectively. A deployment created today cannot legitimately display six months of its own daily asking history tomorrow. The chart grows as observations accumulate.
+
+### Full-market asking median
+
+The observed Duna House median is not presented as a median of all Hungarian portals. Adding more lawful providers later can improve representativeness, but each provider needs its own source-access review and health checks.
+
+### Calibrated hedonic valuation coefficients
+
+The market baseline is now substantially more granular, but property-condition adjustments such as ground floor/no lift/renovation remain visible fallback assumptions rather than trained Hungarian coefficients. They are kept separate from source-derived market evidence.
+
+### Personal public watchlists
+
+Benchmark notifications exist, but persistent per-user watchlists need authentication and ownership before a public hosted deployment should accept them.
+
+The remaining sequence is in [ROADMAP.md](ROADMAP.md).
+
+## Data sources
+
+Current Hungary sources:
+
+- KSH STADAT 18.2.2.14 — quarterly completed-transaction mean HUF/m²: `https://www.ksh.hu/stadat_files/lak/en/lak0052.html`
+- KSH STADAT 18.2.2.15 — quarterly transaction counts: `https://www.ksh.hu/stadat_files/lak/en/lak0053.html`
+- KSH Ingatlanadattár — granular completed-transaction statistics: `https://www.ksh.hu/s/ingatlanadattar/`
 - MNB latest official exchange rates: `https://www.mnb.hu/arfolyamok`
 - MNB HFM/JTM debt-brake rules: `https://www.mnb.hu/penzugyi-stabilitas/makroprudencialis-politika/makroprudencialis-eszkoztar/adossagfek-szabalyok-hfm-jtm`
-- NAV transfer-tax rates: `https://nav.gov.hu/ugyfeliranytu/adokulcsok_jarulekmertekek/illetekmertekek/visszterhes-vagyonatruhazasi-illetek`
+- NAV general transfer-tax rates: `https://nav.gov.hu/ugyfeliranytu/adokulcsok_jarulekmertekek/illetekmertekek/visszterhes-vagyonatruhazasi-illetek`
+- Duna House public property discovery/listing pages — experimental factual observed subset; see the dedicated provider documentation before enabling it.
 
-More detail is in [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
+See [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) for provenance and limitations.
 
 ## Quick start with Docker
 
@@ -63,31 +151,39 @@ cd real-estate-watch
 docker compose up -d --build
 ```
 
-Open `http://localhost:8000`.
+Open:
 
-The web container starts with the bundled KSH reference data. Run the live collectors once:
+```text
+http://localhost:8000
+```
+
+The web application starts with bundled KSH reference data for resilience. Run the live collectors once:
 
 ```bash
 docker compose exec app python -m app.cli daily
 ```
 
-Then check `http://localhost:8000/diagnostics`.
+Then open:
 
-### Daily scheduler in Docker
+```text
+http://localhost:8000/diagnostics
+```
 
-The scheduler is an optional Compose profile. It wakes once a day, runs the same idempotent daily collection job, then sleeps again.
+The first granular KSH refresh may take longer than the ordinary daily job because it loads the Budapest root table and district street pages. The Duna House observer is bounded by `DH_MAX_LISTINGS_PER_RUN`, so source coverage builds over multiple runs rather than attempting a full detail-page sweep at once.
+
+### Optional Docker scheduler
 
 ```bash
 docker compose --profile scheduler up -d
 ```
 
-It runs at approximately 04:15 in `Europe/Budapest`. If you already have a host scheduler, NAS scheduler or another job runner, leave the scheduler profile off and call:
+The scheduler runs the same idempotent daily command. If you already have a NAS/host scheduler, leave this profile disabled and schedule:
 
 ```bash
 python -m app.cli daily
 ```
 
-once per day instead.
+once per day.
 
 ## Run without Docker
 
@@ -101,90 +197,128 @@ python -m app.cli seed
 uvicorn app.main:app --reload
 ```
 
-SQLite is used by default for local development. Production deployments should use PostgreSQL by setting `DATABASE_URL`.
+SQLite is the development default. Use PostgreSQL for a persistent production deployment by setting `DATABASE_URL`.
 
-## Railway deployment
+## Railway
 
-The root `Dockerfile` and `railway.toml` are ready for Railway.
+The root `Dockerfile` and `railway.toml` are intended for Railway deployment.
 
-A practical setup is:
+A practical setup:
 
-1. Create a Railway project from this GitHub repository.
+1. Create a Railway project from this repository.
 2. Add PostgreSQL.
-3. Set `DATABASE_URL` to the PostgreSQL connection string. Both `postgres://` and `postgresql://` are normalised by the app to the psycopg driver.
-4. Deploy the web service from the repository. Railway will use the root `Dockerfile`.
-5. Set the web health-check path to `/health/ready` if it is not picked up from `railway.toml`.
-6. Generate a public domain for the web service.
-7. Add a second service from the same repository for daily collection. Its start command is:
+3. Set `DATABASE_URL` to the PostgreSQL connection string.
+4. Deploy the web service from the repository.
+5. Use `/health/ready` as the health check.
+6. Generate a public domain.
+7. Add another service from the same repository with start command:
 
    ```bash
    python -m app.cli daily
    ```
 
-8. Configure that second service as a Railway Cron Job, for example once per day. Railway cron schedules use UTC and do not guarantee minute-perfect execution; this application does not require an exact collection minute.
+8. Configure that second service as a Railway Cron Job once per day.
 
-The cron process exits after collection. No background worker is required on Railway.
+The collection process exits when finished. No queue or permanent worker is required for the current scale.
 
 ## Configuration
 
-Copy `.env.example` to `.env` for local non-Docker use. Do not commit `.env`.
+Copy `.env.example` to `.env` for local non-Docker use. Never commit `.env`.
 
 Important variables:
 
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | SQLite or PostgreSQL SQLAlchemy URL |
-| `APP_DEFAULT_LANGUAGE` | `en` or `hu`; also controls notification language |
-| `APP_TIMEZONE` | Local scheduler timezone; defaults to `Europe/Budapest` |
-| `SOURCE_STALE_HOURS` | Marks an attempted source stale when its last successful refresh is older than this |
-| `SELF_HEAL_ENABLED` | Restores missing bundled reference rows without overwriting live data |
-| `NOTIFY_WEBHOOK_URL` | Optional generic webhook |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram notification channel |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `NOTIFY_EMAIL_TO` | Optional STARTTLS email channel |
-| `MARKET_NOTIFY_CHANGE_PERCENT` | Notify when a refreshed tracked benchmark changes by at least this percentage; a new KSH quarter also notifies |
-| `ADMIN_KEY` | Optional key protecting the manual `/ops/refresh` endpoint |
+| `APP_DEFAULT_LANGUAGE` | `en` or `hu` |
+| `APP_TIMEZONE` | Local scheduler timezone; default `Europe/Budapest` |
+| `SOURCE_STALE_HOURS` | General source-freshness warning threshold |
+| `SELF_HEAL_ENABLED` | Allow safe restoration of missing bundled KSH reference rows |
+| `KSH_LOCAL_REFRESH_HOURS` | Minimum interval between granular KSH refreshes; default 168 |
+| `DH_ENABLED` | Enable/disable the experimental Duna House observer |
+| `DH_MAX_LISTINGS_PER_RUN` | Maximum listing detail pages visited in one normal run |
+| `DH_REQUEST_DELAY_SECONDS` | Delay between Duna House detail-page requests |
+| `DH_MIN_AGGREGATE_SAMPLE` | Minimum usable rows before an asking aggregate is published |
+| `DH_POLICY_REVIEW_MAX_AGE_DAYS` | Pause the observer when its manual policy review is too old |
+| `MARKET_NOTIFY_CHANGE_PERCENT` | Broad KSH benchmark movement notification threshold |
+| `NOTIFY_WEBHOOK_URL` | Optional webhook channel |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram channel |
+| `SMTP_*` / `NOTIFY_EMAIL_TO` | Optional STARTTLS email channel |
+| `ADMIN_KEY` | Optional protection for manual `/ops/refresh` |
 
-Any combination of notification channels may be configured. A failure in one channel does not stop the others. Bot tokens, SMTP passwords and credential-bearing webhook URLs belong only in deployment environment variables, never in the repository.
+If `ADMIN_KEY` is not configured, the web refresh endpoint stays disabled. Scheduled CLI collection is unaffected.
 
-If `ADMIN_KEY` is not configured, the web refresh endpoint is disabled. Scheduled CLI collection still works.
+## Operational commands
+
+```bash
+# Restore only missing bundled quarterly reference rows
+python -m app.cli seed
+
+# Official broad market
+python -m app.cli collect-market
+python -m app.cli collect-counts
+
+# Official granular Budapest market
+python -m app.cli collect-local
+
+# MNB currency comparison
+python -m app.cli collect-fx
+
+# Check Duna House policy/sitemap plus one listing page, without bulk collection
+python -m app.cli probe-dh
+
+# Bounded asking-market observation
+python -m app.cli collect-dh
+python -m app.cli collect-dh --limit 20
+
+# Complete scheduled pipeline
+python -m app.cli daily
+
+# Application checks / safe recovery
+python -m app.cli self-check
+python -m app.cli heal
+```
 
 ## Self-checks and self-healing
 
-The application is designed to fail conservatively.
+The application is meant to fail conservatively.
 
-- Database operations use transactions. A failed collection is rolled back before source health is updated.
-- Clearly transient network errors and HTTP 408/425/429/5xx responses receive a small bounded retry with backoff before a source is marked degraded.
-- Market and FX values pass sanity ranges before they can replace a stored observation.
-- FX movements above 15% from the last stored rate are rejected rather than silently accepted, and a purported latest MNB fixing older than ten days is rejected.
-- The KSH parser supports a deliberately narrow set of table rows. If the table structure changes enough that those rows cannot be identified, the collector fails and keeps the previous data instead of guessing column meanings.
-- Daily jobs use a database job record to avoid overlapping runs. A lock left behind by a crashed job is marked abandoned after two hours.
-- Configured webhook, Telegram and email channels receive a notice when a tracked KSH series moves past the configured threshold or advances to a new quarter, and when a live source degrades.
-- The self-healer restores only missing bundled KSH reference rows. A regression test explicitly verifies that an existing live/revised KSH value cannot be replaced by an older bundled fallback.
-- `/health/live` checks that the process is alive.
-- `/health/ready` checks the database and minimum reference data. Optional live sources may be degraded without taking the whole site offline.
-- `/diagnostics` shows source failures, freshness and the last successful refresh.
-- `.github/workflows/source-contract.yml` exercises the live KSH price, KSH transaction-count and MNB FX contracts every day so an upstream page change can be seen even when no application deployment is running.
+It can automatically:
 
-"Self-healing" here means retrying transient failures, restoring known-safe missing reference state and continuing from last known-good data. It does **not** mean modifying application code automatically or accepting unverified external values.
+- retry clearly transient network failures a small number of times;
+- retain the last verified source values when a collector fails;
+- restore missing bundled KSH bootstrap rows without overwriting later live revisions;
+- reject implausible market/FX values;
+- reject unexpectedly stale/future MNB fixing dates;
+- mark a crashed daily-job lock abandoned after two hours;
+- create newly introduced tables at startup;
+- mark a disappeared observed listing inactive without calling it sold;
+- pause the experimental asking collector after a source-policy change or expired review;
+- surface degraded/stale state through Diagnostics.
+
+It does **not** automatically edit its own code, guess a changed source schema, interpolate missing KSH values, rotate around access restrictions or accept malformed data because a number happens to look plausible.
+
+That boundary is intentional: self-healing should restore known-safe state, not manufacture new truth.
 
 ## Mortgage calculations
 
-The mortgage calculator currently implements:
+The Hungary calculator currently includes:
 
 - standard annuity repayment;
 - HUF mortgage HFM/LTV limits;
-- JTM/DSTI limits for the selected interest-fixation category;
-- the HUF 800,000 monthly net-income threshold effective from 1 January 2026;
-- the qualifying 90% HFM path for first-home and green cases;
-- the general NAV transfer-tax calculation: 4% up to HUF 1 billion of property value, 2% above that, capped at HUF 200 million per property.
+- JTM/DSTI limits for the selected fixation category;
+- the implemented HUF 800,000 monthly net-income threshold effective from 1 January 2026;
+- qualifying 90% HFM path for selected first-home/green scenarios;
+- +1/+2/+3 percentage-point payment stress tests;
+- the implemented general NAV transfer-tax rule.
 
-The result is indicative. A lender can use a different appraised property value, recognise a different income amount, impose stricter underwriting or apply product-specific rules. The app therefore labels the result as a regulatory screen, not an approval.
+The output is indicative, not an approval. A lender can use a different appraised property value, recognise a different income amount and impose stricter or product-specific underwriting.
 
-The displayed "cash required" currently includes the entered down payment and the calculated general transfer tax. Lawyer, valuation, bank and insurance charges are not guessed. They should be added once their amount is known from a reliable source or a selected product.
+The displayed cash requirement includes the entered down payment and the general transfer-tax calculation. Lawyer, valuation, bank and insurance charges are not guessed.
 
 ## Property adjustments
 
-The first release exposes the adjustment coefficients instead of hiding them:
+Current fallback coefficients remain visible:
 
 - ground floor: -6%
 - top floor: -3%
@@ -194,49 +328,19 @@ The first release exposes the adjustment coefficients instead of hiding them:
 - courtyard-facing: -4%
 - balcony/terrace: +5%
 
-They are placeholders for a future calibrated model, not claims about the exact Budapest market effect. The total adjustment is capped at ±40%, and the estimate is shown with a broad ±7% range. Once listing-level or transaction microdata are available, these coefficients should be replaced by locally estimated factors by area and property type.
+The combined adjustment is capped at ±40%, and the estimate uses a broad range. These are not claims about exact causal Budapest market effects. They are placeholders until enough lawful microdata exist for calibrated, versioned local models.
 
-## API and operational endpoints
+## API and health endpoints
 
-- `GET /api/market?area=BUDAPEST&market=second_hand`
+- `GET /api/market?area=BUDAPEST_06&market=second_hand&property_type=apartment`
 - `GET /api/health`
 - `GET /health/live`
 - `GET /health/ready`
-- `POST /ops/refresh` — requires `X-Admin-Key` and a configured `ADMIN_KEY`
+- `POST /ops/refresh` — requires `X-Admin-Key` if enabled.
 
-CLI operations:
+The market API returns the official nowcast and observed asking layer as separate objects.
 
-```bash
-python -m app.cli seed
-python -m app.cli collect-market
-python -m app.cli collect-counts
-python -m app.cli collect-fx
-python -m app.cli daily
-python -m app.cli self-check
-python -m app.cli heal
-```
-
-## Architecture
-
-The application is intentionally small:
-
-```text
-FastAPI + Jinja templates
-        |
-   service layer
-        |
- country providers
-        |
- SQLAlchemy
-        |
-SQLite (development) / PostgreSQL (production)
-```
-
-There is no Redis, message broker, JavaScript framework or permanent worker requirement.
-
-Country-specific rules live under `app/countries/<country-code>/`. The Hungary module contains local market naming and current regulatory/tax logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding another country.
-
-## Development checks
+## Tests
 
 ```bash
 pip install -e '.[dev]'
@@ -244,13 +348,25 @@ ruff check app tests
 pytest -q
 ```
 
-GitHub Actions runs the same Python checks, CLI self-check and a booted-container readiness smoke test for every push and pull request. A second scheduled workflow checks the live source contracts once per day.
+Normal GitHub Actions CI also validates Docker Compose, builds the image and boots a container until `/health/ready` succeeds.
+
+A separate scheduled source-contract workflow checks the live KSH/MNB parsers, granular KSH district/street source and a deliberately small Duna House policy/sitemap/listing probe. It does not bulk-collect Duna House in CI.
 
 ## Public-repository safety
 
-This repository is public. Credentials, personal data and deployment secrets do not belong in it. `.env` is ignored, `.env.example` contains placeholders only, and operational write access can be protected with `ADMIN_KEY`.
+This repository is public. Credentials, personal data and deployment secrets do not belong in it.
 
-If you find a security issue, use the process in [SECURITY.md](SECURITY.md) rather than posting credentials or exploitable details in a public issue.
+`.env` is ignored, `.env.example` contains no credentials, and the listing observer intentionally avoids storing contact data and source creative content.
+
+Please use [SECURITY.md](SECURITY.md) for security disclosures rather than posting credentials or exploit details in a public issue.
+
+## More documentation
+
+- [Data sources and provenance](docs/DATA_SOURCES.md)
+- [Market and valuation methodology](docs/METHODOLOGY.md)
+- [Duna House provider boundary](docs/DUNA_HOUSE_PROVIDER.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Roadmap](ROADMAP.md)
 
 ## Licence
 
