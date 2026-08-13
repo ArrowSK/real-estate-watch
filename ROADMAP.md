@@ -1,44 +1,73 @@
 # Roadmap
 
-This file separates the working first release from features that still need a reliable data source or a product decision. It is deliberately specific so that missing features do not get confused with bugs.
+This file separates working features from work that still needs a reliable data source, more observation history or a product decision. Missing data is not presented as a bug and an experimental source is not presented as a complete market.
 
-## 0.1 — current Hungary foundation
+## 0.2 — current Hungary evidence build
 
 Implemented:
 
 - FastAPI/Jinja web application with English and Hungarian interfaces;
-- HUF-first market display with optional MNB EUR/USD comparisons;
-- official KSH transaction-price benchmarks for Budapest, broad Hungarian regions and the national total;
+- distinctive server-rendered market-ledger UI and original SVG icon set, with no frontend build dependency;
+- HUF-first market display with MNB EUR/USD comparisons;
+- official quarterly KSH completed-transaction benchmarks for Budapest, broad Hungarian regions and the national total;
+- matching official KSH quarterly transaction counts;
 - separate new-build and second-hand series;
-- property adjustment worksheet with visible placeholder coefficients;
+- granular KSH Ingatlanadattár collection for Budapest districts and available street/property-type observations;
+- property classes for all dwellings, condominium apartments, houses and panel apartments where the source supports them;
+- transparent current transaction-value nowcast using the local annual KSH benchmark and subsequent official Budapest quarterly movement;
+- experimental Duna House factual asking-market observer using sitemap discovery, bounded incremental detail-page collection and aggregate-only public presentation;
+- policy guard that pauses the Duna House collector after reviewed robots/policy changes or when the dated human review expires;
+- daily observed asking aggregates with median, mean, P25/P75, sample, new observations, price reductions, operational coverage and conservative confidence;
+- strict separation between the official transaction nowcast and observed asking median, plus an explicit asking/transaction gap;
+- granular property valuation worksheet with optional Budapest street and optional asking-price comparison;
+- visible property adjustment assumptions rather than hidden coefficients;
 - Hungarian annuity mortgage and stress calculator;
 - MNB HFM/JTM regulatory screen and general NAV transfer-tax calculation;
 - PostgreSQL/SQLite persistence;
 - Docker, Docker Compose and Railway deployment support;
 - daily collection command and optional local scheduler;
 - webhook, Telegram and SMTP email notifications;
-- diagnostics, bounded retries, source-health/freshness checks, last-known-good fallbacks and safe reference-data repair;
-- GitHub Actions tests plus a booted-container readiness smoke test.
+- diagnostics for self-checks, source health, provider-policy state and recent jobs;
+- bounded retries, source-health/freshness checks, last-known-good fallbacks and safe reference-data repair;
+- normal GitHub Actions tests and Docker readiness smoke test;
+- scheduled live source-contract checks for quarterly KSH, granular KSH, MNB FX and a non-bulk Duna House probe.
 
-## Next — live Hungarian asking market
+## Next — build asking-market history and measure representativeness
 
-This is the most important missing data layer.
+The Duna House observer starts collecting history only from the date a deployment enables it. It cannot manufacture six months of past daily asking prices.
 
-Before implementation, select a listing source that is lawful to use, stable enough for a daily service and capable of providing the fields needed for comparison. Do not build the production application around a brittle undocumented scrape merely to obtain more numbers quickly.
+The next analytical work should be based on accumulated observations rather than more scraping volume:
 
-Once a suitable source exists:
+1. measure how quickly the bounded collector reaches stable coverage of the source sitemap;
+2. separate stock median (all currently observed active listings) from flow median (newly observed listings);
+3. quantify how sensitive the median is to property mix and source coverage;
+4. add first-seen cohort charts and observed price-cut rates once enough history exists;
+5. detect likely duplicate advertisements using factual fields without exposing source content;
+6. add source-specific outlier diagnostics and sample-change alarms;
+7. compare observed Duna House geography/property composition with official KSH transaction composition where comparable;
+8. keep `removed` strictly separate from `sold` unless a future source supplies positive completion evidence.
 
-1. store listing identity, URL/source identity, first seen, last seen and asking-price history;
-2. normalise property type, area, floor, condition, lift, balcony, orientation and other useful attributes;
-3. detect likely duplicate advertisements for the same property;
-4. calculate median and mean asking price per m² separately from transaction benchmarks;
-5. measure inventory, new listings, days on market and price reductions;
-6. add district/city/neighbourhood geography only where the source genuinely supports that resolution;
-7. retain daily snapshots so six-month and one-year asking-market charts become our own consistent history.
+A second lawful asking-market provider would be useful for representativeness and cross-source comparison, but it should be added only after the same source-access review used for Duna House.
+
+## Next — calibrated valuation model
+
+The property-condition coefficients remain transparent fallback assumptions, not a trained hedonic model.
+
+The new official local KSH layer gives a better baseline, but the next valuation phase should wait for enough microdata/history to estimate effects defensibly:
+
+- estimate local coefficients by geography and property class;
+- distinguish building/location effects from listing-price effects;
+- keep sample size and uncertainty with every coefficient;
+- shrink or suppress estimates when data are weak;
+- validate on a hold-out time period;
+- version model methodology so historical outputs remain explainable;
+- keep the plain-language adjustment trail in the UI.
+
+The observed asking median should remain an independent comparison even after a better valuation model exists.
 
 ## Next — current mortgage products
 
-Investigate a documented or otherwise maintainable data interface for current Hungarian products. The official MNB product finder and Certified Consumer-Friendly Housing Loan calculator are the preferred starting points, but the production provider should not depend on an undocumented private endpoint.
+Investigate a documented or otherwise maintainable data interface for current Hungarian products. The official MNB product finder and Certified Consumer-Friendly Housing Loan calculator are the preferred starting points, but the provider must not depend on a brittle undocumented private endpoint.
 
 A product record should include at least:
 
@@ -50,11 +79,15 @@ A product record should include at least:
 - source URL and source update date;
 - last successful collection date.
 
-Only then should the UI label a result as a current product comparison.
+Only then should the UI label a result as a current bank-product comparison.
+
+## Next — acquisition-cost detail
+
+Add only costs that can be sourced or entered explicitly: lawyer fee, valuation fee, bank charges, insurance and fact-specific tax reliefs. Do not silently assume a generic percentage where Hungarian practice varies by provider or transaction.
 
 ## Next — watchlists and user ownership
 
-The first release can notify on changes in supported benchmark series. Personal watchlists require an ownership model before the public app allows arbitrary users to create persistent data.
+The application can notify on changes in supported benchmark series. Personal saved watchlists require an ownership model before a public deployment accepts arbitrary persistent user data.
 
 Design this before adding public write endpoints:
 
@@ -65,39 +98,26 @@ Design this before adding public write endpoints:
 - rate limiting and abuse protection;
 - deletion/export of user data.
 
-Desired watch conditions include market movement, mortgage-rate movement, a newly listed property below a chosen HUF/m² threshold and a listing materially below the app's adjusted estimate.
+Desired watch conditions include market movement, mortgage-rate movement, new observed properties below a chosen HUF/m² threshold and a source listing materially below the app's adjusted estimate.
 
-## Next — calibrated valuation model
+## Database migrations before destructive schema change
 
-The visible fixed coefficients in 0.1 are placeholders, not a trained valuation model.
+Version 0.2 adds new tables but does not alter existing production columns, so the current direct table-creation path remains safe for this release.
 
-After enough listing or transaction microdata exist:
-
-- estimate local coefficients by geography and property class;
-- keep sample size and confidence with every coefficient;
-- shrink or suppress estimates when data are weak;
-- validate on a hold-out period;
-- compare predicted values with later asking-price changes and completed transactions where available;
-- keep a plain-language explanation of every adjustment in the UI.
-
-## Next — acquisition-cost detail
-
-Add only costs that can be sourced or entered explicitly, for example lawyer fees, valuation fees, bank charges, insurance and fact-specific tax reliefs. Do not silently assume a generic percentage where Hungarian practice varies by provider or transaction.
-
-## Before schema growth
-
-The initial release can create its small schema directly. Before listing history, users or multi-country data materially expand the database, add Alembic migrations and a tested upgrade path. Production data should never depend on dropping and recreating tables during an application update.
+Before an update needs to rename/drop/change an existing column, before account data is introduced, or before multi-country data materially changes the schema, add Alembic migrations and a tested upgrade/rollback path. Production data must never depend on dropping and recreating tables during an application update.
 
 ## Additional countries
 
-Do not add a country merely to populate a country dropdown. A new country should have, at minimum:
+Do not add a country merely to populate a dropdown. A new country should have, at minimum:
 
-- a local-currency and geography provider;
-- a documented market-data source and clear distinction between asking and transaction data;
+- local-currency and geography provider;
+- official transaction-market source;
+- any asking-market source clearly separated from transaction data;
+- source-access review and automatic stop boundary for non-open sources;
 - local mortgage and affordability rules;
 - local acquisition-tax/cost rules;
 - source-health checks;
-- interface translations where needed;
+- translations where needed;
 - tests for date-sensitive regulation and source parsing.
 
-The shared application should remain country-neutral; local legal, market and product rules belong in country modules.
+The second country should also be used to extract genuine common provider interfaces. Country-neutral abstractions should come from two working implementations rather than assumptions about markets that have not been built yet.
