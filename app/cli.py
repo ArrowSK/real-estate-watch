@@ -7,13 +7,22 @@ from app.services.fx import refresh_mnb_fx
 from app.services.health import run_self_checks
 from app.services.market import ensure_seed_market_data, refresh_ksh
 from app.services.self_heal import heal_reference_data
+from app.services.transaction_counts import refresh_ksh_transaction_counts
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Real Estate Watch operations")
     parser.add_argument(
         "command",
-        choices=["seed", "collect-market", "collect-fx", "daily", "self-check", "heal"],
+        choices=[
+            "seed",
+            "collect-market",
+            "collect-counts",
+            "collect-fx",
+            "daily",
+            "self-check",
+            "heal",
+        ],
     )
     args = parser.parse_args()
     init_db()
@@ -22,6 +31,8 @@ def main() -> int:
             result = {"ok": True, "seeded": ensure_seed_market_data(db)}
         elif args.command == "collect-market":
             result = refresh_ksh(db)
+        elif args.command == "collect-counts":
+            result = refresh_ksh_transaction_counts(db)
         elif args.command == "collect-fx":
             result = refresh_mnb_fx(db)
         elif args.command == "daily":
