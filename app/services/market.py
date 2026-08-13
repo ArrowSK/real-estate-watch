@@ -72,17 +72,37 @@ def validate_market_value(price_huf_m2: float) -> None:
         raise ValueError(f"Market value outside safety range: {price_huf_m2}")
 
 
+def _find_market_snapshot(
+    db: Session,
+    *,
+    source_key: str,
+    area_code: str,
+    property_market: str,
+    period: str,
+    metric: str,
+) -> MarketSnapshot | None:
+    return db.scalar(
+        select(MarketSnapshot).where(
+            MarketSnapshot.source_key == source_key,
+            MarketSnapshot.area_code == area_code,
+            MarketSnapshot.property_market == property_market,
+            MarketSnapshot.period == period,
+            MarketSnapshot.metric == metric,
+        )
+    )
+
+
 def upsert_market_snapshot(db: Session, data: dict, *, source_key: str = KSH_SOURCE_KEY) -> MarketSnapshot:
     price = float(data["price_huf_m2"])
     validate_market_value(price)
-    row = db.scalar(
-        select(MarketSnapshot).where(
-            MarketSnapshot.source_key == source_key,
-            MarketSnapshot.area_code == data["area_code"],
-            MarketSnapshot.property_market == data["property_market"],
-            MarketSnapshot.period == data["period"],
-            MarketSnapshot.metric == data.get("metric", "mean"),
-        )
+    metric = data.get("metric", "mean")
+    row = _find_market_snapshot(
+        db,
+        source_key=source_key,
+        area_code=data["area_code"],
+        property_market=data["property_market"],
+        period=data["period"],
+        metric=metric,
     )
     if row is None:
         row = MarketSnapshot(
@@ -93,7 +113,7 @@ def upsert_market_snapshot(db: Session, data: dict, *, source_key: str = KSH_SOU
             property_market=data["property_market"],
             period=data["period"],
             observation_date=date.fromisoformat(str(data["observation_date"])),
-            metric=data.get("metric", "mean"),
+            metric=metric,
             price_huf_m2=price,
             sample_size=data.get("sample_size"),
             source_key=source_key,
@@ -119,12 +139,28 @@ def upsert_market_snapshot(db: Session, data: dict, *, source_key: str = KSH_SOU
 
 
 def ensure_seed_market_data(db: Session) -> int:
-    count = 0
+    """Insert only missing bundled reference rows.
+
+    Bundled rows are a bootstrap and recovery source. They must never overwrite an observation
+    already stored from a live KSH refresh, because KSH may revise preliminary quarters.
+    """
+    inserted = 0
     for item in _seed_rows():
+        metric = item.get("metric", "mean")
+        existing = _find_market_snapshot(
+            db,
+            source_key=KSH_SOURCE_KEY,
+            area_code=item["area_code"],
+            property_market=item["property_market"],
+            period=item["period"],
+            metric=metric,
+        )
+        if existing is not None:
+            continue
         upsert_market_snapshot(db, item)
-        count += 1
+        inserted += 1
     db.commit()
-    return count
+    return inserted
 
 
 def _number(value: str) -> int | None:
