@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ t.market }} · {{ t.app_name }}{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div>
+    <p class="eyebrow">Hungary / Magyarország</p>
+    <h1>{{ t.current_benchmark }}</h1>
+    <p class="muted">{{ t.official_transaction_data }} · KSH</p>
+  </div>
+</section>
+
+<form class="filter-bar" method="get" action="/">
+  <label>{{ t.area }}
+    <select name="area">
+      {% for item in areas %}
+      <option value="{{ item.code }}" {% if item.code == selected_area %}selected{% endif %}>{{ item.name_hu if lang == 'hu' else item.name_en }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ t.market }}
+    <select name="market">
+      <option value="second_hand" {% if selected_market == 'second_hand' %}selected{% endif %}>{{ t.second_hand }}</option>
+      <option value="new" {% if selected_market == 'new' %}selected{% endif %}>{{ t.new }}</option>
+    </select>
+  </label>
+  <button type="submit">{{ t.calculate }}</button>
+</form>
+
+{% if latest %}
+<section class="grid metrics-grid">
+  <article class="card metric-card primary">
+    <p class="label">{{ t.price_per_m2 }}</p>
+    <p class="metric">{{ fmt(latest.price_huf_m2, 0) }} <span>HUF/m²</span></p>
+    <p class="submetric">
+      {% if converted.EUR %}€{{ fmt(converted.EUR, 0) }}{% else %}—{% endif %}
+      <span>·</span>
+      {% if converted.USD %}${{ fmt(converted.USD, 0) }}{% else %}—{% endif %}
+    </p>
+  </article>
+  <article class="card">
+    <p class="label">{{ t.period }}</p>
+    <p class="large-text">{{ latest.period }}</p>
+    <p class="muted">{{ latest.observation_date }}</p>
+  </article>
+  <article class="card">
+    <p class="label">{{ t.source }}</p>
+    <p class="large-text">KSH STADAT 18.2.2.14</p>
+    <a href="{{ latest.source_url }}" rel="noreferrer">{{ t.official_table }}</a>
+  </article>
+</section>
+
+<section class="card chart-card">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">{{ selected_area }}</p>
+      <h2>{{ t.trend }}</h2>
+    </div>
+    <span class="pill">HUF/m²</span>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="marketChart" aria-label="{{ t.trend }}" data-series='{{ chart | tojson }}'></canvas>
+  </div>
+</section>
+
+<section class="notice">
+  <p><strong>{{ t.mean_note }}</strong></p>
+  <p>{{ t.data_caveat }}</p>
+  <p class="small">{{ t.small_currency_note }}</p>
+  {% if not fx %}<p class="small warning-text">{{ t.no_fx }}</p>{% endif %}
+</section>
+{% else %}
+<section class="notice warning"><p>{{ t.not_available }}</p></section>
+{% endif %}
+{% endblock %}
