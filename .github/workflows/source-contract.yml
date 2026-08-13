@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '27 4 * * *'
+  push:
+    paths:
+      - '.github/workflows/source-contract.yml'
 
 permissions:
   contents: read
