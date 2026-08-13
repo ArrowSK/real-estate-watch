@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "real-estate-watch"
+version = "0.1.0"
+description = "Lightweight real-estate market and mortgage monitoring, starting with Hungary."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "Real Estate Watch contributors"}]
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.34,<1.0",
+  "sqlalchemy>=2.0,<3.0",
+  "pydantic-settings>=2.7,<3.0",
+  "jinja2>=3.1,<4.0",
+  "httpx>=0.28,<1.0",
+  "beautifulsoup4>=4.13,<5.0",
+  "python-multipart>=0.0.20,<1.0",
+  "psycopg[binary]>=3.2,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html", "static/*.css", "static/*.js", "countries/hu/data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
