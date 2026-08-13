@@ -18,10 +18,13 @@ from app.countries.hu.provider import HungaryProvider
 from app.db import SessionLocal, get_db, init_db
 from app.i18n import normalize_language, translator
 from app.jobs import run_daily_collection
-from app.models import SourceHealth
+from app.models import JobRun, ProviderPolicyState, SourceHealth
+from app.services.analytics import ASKING_PROPERTY_MAP, market_comparison, transaction_nowcast
+from app.services.duna_house import asking_market_series
 from app.services.fx import converted_amounts, latest_fx
 from app.services.health import readiness, run_self_checks
-from app.services.market import ensure_seed_market_data, latest_market, market_series
+from app.services.ksh_local import streets_for_area
+from app.services.market import ensure_seed_market_data, market_series
 from app.services.mortgage import calculate_mortgage
 from app.services.self_heal import heal_reference_data
 from app.services.valuation import DEFAULT_ADJUSTMENTS, value_property
@@ -39,6 +42,13 @@ HU_ERROR_TRANSLATIONS = {
     "Interest rate must be between 0% and 30%": "A kamatnak 0% és 30% közé kell esnie.",
     "Term must be between 1 and 40 years": "A futamidőnek 1 és 40 év közé kell esnie.",
 }
+
+PROPERTY_TYPES = (
+    ("all", "All homes", "Minden lakás"),
+    ("apartment", "Apartments", "Társasházi lakások"),
+    ("house", "Houses", "Családi házak"),
+    ("panel", "Panel apartments", "Lakótelepi panellakások"),
+)
 
 
 @asynccontextmanager
@@ -88,13 +98,23 @@ def template_context(request: Request, language: str, **extra) -> dict:
     }
 
 
-def hungary_selection(area: str, market: str) -> tuple[HungaryProvider, list[dict[str, str]], str, str]:
+def hungary_selection(
+    area: str,
+    market: str,
+    property_type: str = "all",
+) -> tuple[HungaryProvider, list[dict[str, str]], str, str, str]:
     provider = HungaryProvider()
     areas = provider.areas()
     valid_areas = {item["code"] for item in areas}
     selected_area = area if area in valid_areas else "BUDAPEST"
     selected_market = market if market in {"second_hand", "new"} else "second_hand"
-    return provider, areas, selected_area, selected_market
+    valid_property_types = {item[0] for item in PROPERTY_TYPES}
+    selected_property_type = property_type if property_type in valid_property_types else "all"
+    return provider, areas, selected_area, selected_market, selected_property_type
+
+
+def _area_info(areas: list[dict[str, str]], area_code: str) -> dict[str, str]:
+    return next((item for item in areas if item["code"] == area_code), areas[0])
 
 
 @app.get("/language/{language}")
@@ -110,23 +130,49 @@ def market_page(
     request: Request,
     area: str = Query("BUDAPEST"),
     market: str = Query("second_hand"),
+    property_type: str = Query("all"),
     range: str = Query("6m"),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    _, areas, area, market = hungary_selection(area, market)
+    _, areas, area, market, property_type = hungary_selection(area, market, property_type)
     selected_range = range if range in {"6m", "1y", "all"} else "6m"
-    series = market_series(db, area, market)
-    latest = series[-1] if series else None
+    area_info = _area_info(areas, area)
+    comparison = market_comparison(db, area, market, property_type)
+    official = comparison.official
+    asking = comparison.asking
     fx = latest_fx(db)
-    converted = converted_amounts(latest.price_huf_m2, fx) if latest else {}
+    official_converted = converted_amounts(official.value_huf_m2, fx) if official else {}
+    asking_converted = converted_amounts(asking.median_huf_m2, fx) if asking else {}
+
+    quarterly_area = "BUDAPEST" if area.startswith("BUDAPEST_") else area
+    official_rows = market_series(db, quarterly_area, market)
     if selected_range == "6m":
-        chart_rows = series[-3:]
+        chart_rows = official_rows[-3:]
     elif selected_range == "1y":
-        chart_rows = series[-5:]
+        chart_rows = official_rows[-5:]
     else:
-        chart_rows = series
-    chart = [{"period": row.period, "price": row.price_huf_m2} for row in chart_rows]
+        chart_rows = official_rows
+    official_chart = [
+        {"period": row.period, "date": row.observation_date.isoformat(), "price": row.price_huf_m2}
+        for row in chart_rows
+    ]
+
+    asking_type = comparison.asking_scope or ASKING_PROPERTY_MAP.get(property_type, "all")
+    asking_rows = asking_market_series(db, area, asking_type, market)
+    if selected_range == "6m":
+        asking_rows = asking_rows[-183:]
+    elif selected_range == "1y":
+        asking_rows = asking_rows[-366:]
+    asking_chart = [
+        {
+            "period": row.snapshot_date.isoformat(),
+            "date": row.snapshot_date.isoformat(),
+            "price": row.median_huf_m2,
+        }
+        for row in asking_rows
+    ]
+
     return templates.TemplateResponse(
         request,
         "market.html",
@@ -135,12 +181,22 @@ def market_page(
             language,
             areas=areas,
             selected_area=area,
+            selected_area_info=area_info,
             selected_market=market,
+            selected_property_type=property_type,
+            property_types=PROPERTY_TYPES,
             selected_range=selected_range,
-            latest=latest,
-            converted=converted,
+            comparison=comparison,
+            official=official,
+            asking=asking,
+            official_converted=official_converted,
+            asking_converted=asking_converted,
             fx=fx,
-            chart=chart,
+            official_chart=official_chart,
+            asking_chart=asking_chart,
+            latest=official,
+            converted=official_converted,
+            chart=official_chart,
         ),
     )
 
@@ -148,13 +204,17 @@ def market_page(
 @app.get("/valuation", response_class=HTMLResponse)
 def valuation_page(
     request: Request,
-    area: str = Query("BUDAPEST"),
+    area: str = Query("BUDAPEST_06"),
     market: str = Query("second_hand"),
+    property_type: str = Query("apartment"),
+    street: str = Query(""),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    _, areas, area, market = hungary_selection(area, market)
-    baseline_row = latest_market(db, area, market)
+    _, areas, area, market, property_type = hungary_selection(area, market, property_type)
+    baseline = transaction_nowcast(db, area, market, property_type, street or None)
+    comparison = market_comparison(db, area, market, property_type, street or None)
+    streets = streets_for_area(db, area) if area.startswith("BUDAPEST_") else []
     return templates.TemplateResponse(
         request,
         "valuation.html",
@@ -162,10 +222,16 @@ def valuation_page(
             request,
             language,
             result=None,
-            baseline_row=baseline_row,
+            baseline=baseline,
+            baseline_row=baseline,
+            comparison=comparison,
             areas=areas,
             selected_area=area,
             selected_market=market,
+            selected_property_type=property_type,
+            property_types=PROPERTY_TYPES,
+            street=street,
+            streets=streets,
             factors=DEFAULT_ADJUSTMENTS,
             fx=latest_fx(db),
         ),
@@ -175,17 +241,21 @@ def valuation_page(
 @app.post("/valuation", response_class=HTMLResponse)
 def valuation_calculate(
     request: Request,
-    area: str = Form("BUDAPEST"),
+    area: str = Form("BUDAPEST_06"),
     market: str = Form("second_hand"),
+    property_type: str = Form("apartment"),
+    street: str = Form(""),
     floor_area: float = Form(...),
+    asking_price: float | None = Form(None),
     factors: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    _, areas, area, market = hungary_selection(area, market)
-    baseline_row = latest_market(db, area, market)
+    _, areas, area, market, property_type = hungary_selection(area, market, property_type)
+    baseline = transaction_nowcast(db, area, market, property_type, street or None)
+    comparison = market_comparison(db, area, market, property_type, street or None)
     try:
-        if baseline_row is None:
+        if baseline is None:
             raise ValueError(
                 "Nincs elérhető piaci referencia ehhez a választáshoz."
                 if language == "hu"
@@ -193,7 +263,7 @@ def valuation_calculate(
             )
         result = value_property(
             floor_area_m2=floor_area,
-            baseline_huf_m2=baseline_row.price_huf_m2,
+            baseline_huf_m2=baseline.value_huf_m2,
             factors=factors,
         )
         error = None
@@ -201,6 +271,12 @@ def valuation_calculate(
         result, error = None, localized_error(language, exc)
     fx = latest_fx(db)
     conversions = converted_amounts(result.estimated_value_huf, fx) if result else {}
+    asking_gap = (
+        (asking_price / result.estimated_value_huf - 1) * 100
+        if result and asking_price and asking_price > 0
+        else None
+    )
+    streets = streets_for_area(db, area) if area.startswith("BUDAPEST_") else []
     return templates.TemplateResponse(
         request,
         "valuation.html",
@@ -209,12 +285,20 @@ def valuation_calculate(
             language,
             result=result,
             error=error,
-            baseline_row=baseline_row,
+            baseline=baseline,
+            baseline_row=baseline,
+            comparison=comparison,
             floor_area=floor_area,
+            asking_price=asking_price,
+            asking_gap=asking_gap,
             selected_factors=factors,
             areas=areas,
             selected_area=area,
             selected_market=market,
+            selected_property_type=property_type,
+            property_types=PROPERTY_TYPES,
+            street=street,
+            streets=streets,
             factors=DEFAULT_ADJUSTMENTS,
             fx=fx,
             conversions=conversions,
@@ -288,11 +372,20 @@ def mortgage_calculate(
 def diagnostics_page(request: Request, db: Session = Depends(get_db)):
     language = language_from_request(request)
     sources = list(db.scalars(select(SourceHealth).order_by(SourceHealth.source_key)))
+    policies = list(db.scalars(select(ProviderPolicyState).order_by(ProviderPolicyState.source_key)))
+    jobs = list(db.scalars(select(JobRun).order_by(JobRun.started_at.desc()).limit(8)))
     checks = run_self_checks(db)
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
-        template_context(request, language, sources=sources, checks=checks),
+        template_context(
+            request,
+            language,
+            sources=sources,
+            policies=policies,
+            jobs=jobs,
+            checks=checks,
+        ),
     )
 
 
@@ -314,27 +407,60 @@ def health_ready(db: Session = Depends(get_db)):
 def market_api(
     area: str = Query("BUDAPEST"),
     market: str = Query("second_hand"),
+    property_type: str = Query("all"),
     db: Session = Depends(get_db),
 ):
-    rows = market_series(db, area, market)
+    _, _, area, market, property_type = hungary_selection(area, market, property_type)
+    comparison = market_comparison(db, area, market, property_type)
+    official_area = "BUDAPEST" if area.startswith("BUDAPEST_") else area
+    rows = market_series(db, official_area, market)
     fx = latest_fx(db)
     return {
         "country": "HU",
         "area": area,
         "market": market,
+        "property_type": property_type,
         "currency": "HUF",
-        "fx": {k: {"huf_per_unit": v.huf_per_unit, "date": v.rate_date} for k, v in fx.items()},
-        "series": [
+        "official_nowcast": (
             {
-                "period": x.period,
-                "observation_date": x.observation_date,
-                "metric": x.metric,
-                "price_huf_m2": x.price_huf_m2,
-                "sample_size": x.sample_size,
-                "source": x.source_key,
-                "source_url": x.source_url,
+                "price_huf_m2": comparison.official.value_huf_m2,
+                "local_base_huf_m2": comparison.official.local_base_huf_m2,
+                "local_year": comparison.official.local_year,
+                "trend_factor": comparison.official.trend_factor,
+                "geography": comparison.official.geography,
+                "sample_size": comparison.official.sample_size,
+                "method": comparison.official.method,
+                "source_url": comparison.official.source_url,
             }
-            for x in rows
+            if comparison.official
+            else None
+        ),
+        "observed_asking": (
+            {
+                "median_huf_m2": comparison.asking.median_huf_m2,
+                "p25_huf_m2": comparison.asking.p25_huf_m2,
+                "p75_huf_m2": comparison.asking.p75_huf_m2,
+                "sample_size": comparison.asking.sample_size,
+                "confidence": comparison.asking.confidence,
+                "status": comparison.asking.status,
+                "snapshot_date": comparison.asking.snapshot_date,
+            }
+            if comparison.asking
+            else None
+        ),
+        "asking_gap_pct": comparison.asking_gap_pct,
+        "fx": {key: {"huf_per_unit": value.huf_per_unit, "date": value.rate_date} for key, value in fx.items()},
+        "quarterly_series": [
+            {
+                "period": row.period,
+                "observation_date": row.observation_date,
+                "metric": row.metric,
+                "price_huf_m2": row.price_huf_m2,
+                "sample_size": row.sample_size,
+                "source": row.source_key,
+                "source_url": row.source_url,
+            }
+            for row in rows
         ],
     }
 
@@ -343,6 +469,7 @@ def market_api(
 def health_api(db: Session = Depends(get_db)):
     ready, checks = readiness(db)
     sources = list(db.scalars(select(SourceHealth).order_by(SourceHealth.source_key)))
+    policies = list(db.scalars(select(ProviderPolicyState).order_by(ProviderPolicyState.source_key)))
     return {
         "ready": ready,
         "checks": checks,
@@ -353,9 +480,17 @@ def health_api(db: Session = Depends(get_db)):
                 "last_success": source.last_success_at,
                 "last_attempt": source.last_attempt_at,
                 "failures": source.consecutive_failures,
-                "last_error": source.last_error,
             }
             for source in sources
+        ],
+        "provider_policies": [
+            {
+                "source": policy.source_key,
+                "status": policy.status,
+                "reviewed_on": policy.reviewed_on,
+                "last_checked": policy.last_checked_at,
+            }
+            for policy in policies
         ],
     }
 
