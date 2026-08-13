@@ -6,9 +6,22 @@ This distinction matters. The public website can be reached by ordinary crawlers
 
 The provider is therefore intentionally narrow, conservative and easy to disable.
 
+## Residential scope
+
+The source property sitemap contains more than residential dwellings. It also exposes categories such as general-purpose property, commercial space, storage and hospitality. A raw median across that sitemap would therefore be analytically wrong even if every page parsed correctly.
+
+Version 0.2 restricts the observer to Duna House reference families that the reviewed pages use consistently for residential dwellings:
+
+- `LK` — apartment/lakás;
+- `HZ` and the legacy/general `H` house prefix — house.
+
+Other source reference families are ignored by the asking-market collector. In particular, an `AL`, `UZ`, `TR`, `VL` or project-style reference does not enter a residential aggregate merely because the page happens to contain a price and an area.
+
+This is deliberately fail-closed. If Duna House introduces another residential reference family, a maintainer must review it and update the parser/tests rather than letting the application guess from a page description.
+
 ## What the collector stores
 
-For each observed listing the application may store only factual fields required to calculate market statistics:
+For each observed residential listing the application may store only factual fields required to calculate market statistics:
 
 - source listing reference number;
 - canonical listing URL;
@@ -16,7 +29,7 @@ For each observed listing the application may store only factual fields required
 - source `lastmod` timestamp when the sitemap supplies one;
 - active/inactive observation state;
 - locality, postcode and derived Budapest district where available;
-- broad property class such as apartment or house;
+- broad property class: apartment or house;
 - new/second-hand classification when it can be determined without guessing;
 - room count where available;
 - asking price;
@@ -35,14 +48,15 @@ A normal run:
 
 1. checks the provider policy guard;
 2. retrieves the property sitemap;
-3. compares sitemap URLs with previously observed listing identities;
-4. prioritises unseen URLs, then URLs whose sitemap `lastmod` advanced, then the oldest observed pages;
-5. visits no more than `DH_MAX_LISTINGS_PER_RUN` detail pages;
-6. waits at least `DH_REQUEST_DELAY_SECONDS` between detail-page requests;
-7. parses structured data first and uses narrow visible-text fallbacks only for factual fields;
-8. validates price, area and price/m² ranges before writing;
-9. creates at most one price/area snapshot for a listing per calendar day;
-10. rebuilds publishable aggregates only where the configured minimum sample is met.
+3. filters discovery to the reviewed residential reference families;
+4. compares those residential URLs with previously observed listing identities;
+5. prioritises unseen URLs, then URLs whose sitemap `lastmod` advanced, then the oldest observed pages;
+6. visits no more than `DH_MAX_LISTINGS_PER_RUN` detail pages;
+7. waits at least `DH_REQUEST_DELAY_SECONDS` between detail-page requests;
+8. parses structured data first and uses narrow visible-text fallbacks only for factual fields;
+9. validates residential class, price, area and price/m² ranges before writing;
+10. creates at most one price/area snapshot for a listing per calendar day;
+11. rebuilds publishable aggregates only where the configured minimum sample is met.
 
 The defaults are 250 detail pages per run, a 0.20-second delay, and a minimum aggregate sample of 12. These values can be made more conservative by deployment configuration.
 
@@ -55,7 +69,7 @@ Before the listing collector runs, `check_dh_policy()` fetches the reviewed `rob
 The guard checks several things:
 
 - the reviewed property path remains crawlable for the project's user agent;
-- the configured property sitemap is still declared;
+- the configured property sitemap is still declared, including legal whitespace around the `Sitemap:` directive;
 - the legal/policy body is large enough to look like the expected document rather than an error page;
 - a small set of explicit automated-collection prohibition patterns has not appeared;
 - fingerprints of the reviewed robots and policy bodies have not changed unexpectedly;
@@ -73,7 +87,7 @@ The guard is a technical safety mechanism, not legal advice. It cannot turn a pu
 
 ## `removed` does not mean `sold`
 
-When a previously observed URL disappears from the property sitemap, Real Estate Watch marks the observation inactive. It does not label the property sold.
+When a previously observed residential URL disappears from the eligible discovery set, Real Estate Watch marks the observation inactive. It does not label the property sold.
 
 A listing can disappear because it was sold, withdrawn, duplicated, replaced, temporarily unpublished, moved to another URL or removed for another reason. Any future sold-status model must use separate evidence and must never infer a completed transaction merely from disappearance.
 
@@ -89,9 +103,17 @@ They do not answer:
 
 > What is the median asking price of every active property in Hungary?
 
-Coverage is measured against the source's current property-sitemap discovery count where possible. Confidence remains deliberately conservative and depends on both usable sample size and observed coverage.
+The operational coverage ratio is calculated against the **eligible residential URLs** discovered in the current source sitemap, not against every property-category URL in the sitemap. It describes how much of the chosen Duna House residential discovery set this deployment has observed. It is not Duna House market share and not coverage of all Hungarian listings.
+
+Confidence remains deliberately conservative and depends on both usable sample size and observed source coverage.
 
 An observed asking median is never silently fed into the official transaction-value nowcast. The two series are shown side by side and their gap is calculated explicitly.
+
+## Source-contract probe
+
+The scheduled source-contract job does not bulk-collect the sitemap. It checks the policy guard, discovers the sitemap and then tries a bounded group of recent **residential** URLs until it obtains one valid factual parse. This avoids making the entire contract test depend on whichever mixed-use or commercial listing happens to be newest in the source sitemap.
+
+The probe reports only factual parser status such as source reference, area class and whether required numeric fields were found. It does not print or retain descriptions or contact details.
 
 ## Operational commands
 
