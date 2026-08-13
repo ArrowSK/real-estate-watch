@@ -28,6 +28,8 @@ jobs:
         run: python -m app.cli collect-market
       - name: Check live KSH transaction-count contract
         run: python -m app.cli collect-counts
+      # MNB's latest-rates HTML page is the production FX contract. The older documented
+      # SOAP route returned HTTP 404 during the first live check in August 2026.
       - name: Check live MNB exchange-rate contract
         run: python -m app.cli collect-fx
       - name: Run resulting self-checks
