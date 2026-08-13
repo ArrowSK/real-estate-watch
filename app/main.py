@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -18,10 +18,16 @@ from app.countries.hu.provider import HungaryProvider
 from app.db import SessionLocal, get_db, init_db
 from app.i18n import normalize_language, translator
 from app.jobs import run_daily_collection
-from app.models import SourceHealth
+from app.models import ProviderPolicyState, SourceHealth
 from app.services.fx import converted_amounts, latest_fx
 from app.services.health import readiness, run_self_checks
+from app.services.ksh_local import local_benchmarks
 from app.services.market import ensure_seed_market_data, latest_market, market_series
+from app.services.market_intelligence import (
+    latest_observed_market,
+    local_nowcast,
+    observed_market_history,
+)
 from app.services.mortgage import calculate_mortgage
 from app.services.self_heal import heal_reference_data
 from app.services.valuation import DEFAULT_ADJUSTMENTS, value_property
@@ -30,15 +36,6 @@ settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.app_log_level.upper(), logging.INFO))
 logger = logging.getLogger("real_estate_watch")
 BASE_DIR = Path(__file__).resolve().parent
-
-HU_ERROR_TRANSLATIONS = {
-    "Floor area is outside the supported range": "Az alapterület a támogatott tartományon kívül esik.",
-    "Baseline must be positive": "Az alap négyzetméterárnak pozitívnak kell lennie.",
-    "Purchase price must be positive": "A vételárnak pozitívnak kell lennie.",
-    "Down payment must be between zero and the purchase price": "Az önerőnek nulla és a vételár közé kell esnie.",
-    "Interest rate must be between 0% and 30%": "A kamatnak 0% és 30% közé kell esnie.",
-    "Term must be between 1 and 40 years": "A futamidőnek 1 és 40 év közé kell esnie.",
-}
 
 
 @asynccontextmanager
@@ -70,13 +67,6 @@ def fmt_number(value: float | int | None, digits: int = 0) -> str:
     return f"{value:,.{digits}f}"
 
 
-def localized_error(language: str, error: Exception | str) -> str:
-    message = str(error)
-    if language == "hu":
-        return HU_ERROR_TRANSLATIONS.get(message, message)
-    return message
-
-
 def template_context(request: Request, language: str, **extra) -> dict:
     return {
         "request": request,
@@ -88,19 +78,27 @@ def template_context(request: Request, language: str, **extra) -> dict:
     }
 
 
-def hungary_selection(area: str, market: str) -> tuple[HungaryProvider, list[dict[str, str]], str, str]:
-    provider = HungaryProvider()
-    areas = provider.areas()
-    valid_areas = {item["code"] for item in areas}
-    selected_area = area if area in valid_areas else "BUDAPEST"
-    selected_market = market if market in {"second_hand", "new"} else "second_hand"
-    return provider, areas, selected_area, selected_market
+def _budapest_district_options(db: Session) -> list:
+    rows = local_benchmarks(
+        db,
+        parent_area_code="BUDAPEST",
+        level="district",
+        property_type="total",
+        year=settings.ksh_local_year,
+    )
+    if rows:
+        return rows
+    return [
+        SimpleNamespace(area_code=f"BUDAPEST-{district:02d}", area_name=f"Budapest {district:02d}. kerület")
+        for district in range(1, 24)
+    ]
 
 
 @app.get("/language/{language}")
 def set_language(language: str, next: str = Query("/")):
     lang = normalize_language(language, settings.app_default_language)
-    response = RedirectResponse(next if next.startswith("/") else "/", status_code=303)
+    safe_next = next if next.startswith("/") and not next.startswith("//") else "/"
+    response = RedirectResponse(safe_next, status_code=303)
     response.set_cookie("rew_lang", lang, max_age=60 * 60 * 24 * 365, samesite="lax")
     return response
 
@@ -110,23 +108,19 @@ def market_page(
     request: Request,
     area: str = Query("BUDAPEST"),
     market: str = Query("second_hand"),
-    range: str = Query("6m"),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    _, areas, area, market = hungary_selection(area, market)
-    selected_range = range if range in {"6m", "1y", "all"} else "6m"
+    provider = HungaryProvider()
+    areas = provider.areas()
+    valid_areas = {x["code"] for x in areas}
+    area = area if area in valid_areas else "BUDAPEST"
+    market = market if market in {"second_hand", "new"} else "second_hand"
     series = market_series(db, area, market)
     latest = series[-1] if series else None
     fx = latest_fx(db)
     converted = converted_amounts(latest.price_huf_m2, fx) if latest else {}
-    if selected_range == "6m":
-        chart_rows = series[-3:]
-    elif selected_range == "1y":
-        chart_rows = series[-5:]
-    else:
-        chart_rows = series
-    chart = [{"period": row.period, "price": row.price_huf_m2} for row in chart_rows]
+    chart = [{"period": row.period, "price": row.price_huf_m2} for row in series[-10:]]
     return templates.TemplateResponse(
         request,
         "market.html",
@@ -136,7 +130,6 @@ def market_page(
             areas=areas,
             selected_area=area,
             selected_market=market,
-            selected_range=selected_range,
             latest=latest,
             converted=converted,
             fx=fx,
@@ -145,16 +138,118 @@ def market_page(
     )
 
 
-@app.get("/valuation", response_class=HTMLResponse)
-def valuation_page(
+@app.get("/live", response_class=HTMLResponse)
+def live_market_page(
     request: Request,
     area: str = Query("BUDAPEST"),
-    market: str = Query("second_hand"),
+    market_class: str = Query("condominium"),
+    segment: str = Query("second_hand"),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    _, areas, area, market = hungary_selection(area, market)
-    baseline_row = latest_market(db, area, market)
+    district_options = _budapest_district_options(db)
+    areas = [{"code": "BUDAPEST", "name": "Budapest"}] + [
+        {"code": row.area_code, "name": row.area_name} for row in district_options
+    ]
+    valid_areas = {x["code"] for x in areas}
+    area = area if area in valid_areas else "BUDAPEST"
+    market_class = market_class if market_class in {"condominium", "panel", "family_house"} else "condominium"
+    segment = segment if segment in {"second_hand", "new"} else "second_hand"
+    latest = latest_observed_market(
+        db,
+        area_code=area,
+        market_class=market_class,
+        market_segment=segment,
+    )
+    history_rows = observed_market_history(
+        db,
+        area_code=area,
+        market_class=market_class,
+        market_segment=segment,
+    )
+    history = [
+        {"period": row.snapshot_date.isoformat(), "price": row.median_huf_m2}
+        for row in history_rows
+    ]
+    policy = db.scalar(
+        select(ProviderPolicyState).where(ProviderPolicyState.provider_key == "duna_house")
+    )
+    policy_ok = bool(policy and policy.state == "reviewed_experimental")
+    asking_gap = None
+    if latest and area.startswith("BUDAPEST-") and segment == "second_hand":
+        local_type = market_class if market_class in {"condominium", "panel", "family_house"} else "total"
+        nowcast = local_nowcast(db, area_code=area, property_type=local_type)
+        if nowcast and nowcast.nowcast_huf_m2:
+            asking_gap = (latest.median_huf_m2 / nowcast.nowcast_huf_m2 - 1) * 100
+    return templates.TemplateResponse(
+        request,
+        "live.html",
+        template_context(
+            request,
+            language,
+            areas=areas,
+            selected_area=area,
+            selected_class=market_class,
+            selected_segment=segment,
+            latest=latest,
+            history=history,
+            policy_ok=policy_ok,
+            asking_gap=asking_gap,
+        ),
+    )
+
+
+@app.get("/local", response_class=HTMLResponse)
+def local_market_page(
+    request: Request,
+    area: str = Query("BUDAPEST-06"),
+    property_type: str = Query("condominium"),
+    db: Session = Depends(get_db),
+):
+    language = language_from_request(request)
+    districts = _budapest_district_options(db)
+    valid_areas = {row.area_code for row in districts}
+    area = area if area in valid_areas else "BUDAPEST-06"
+    property_type = property_type if property_type in {"condominium", "panel", "family_house", "total"} else "condominium"
+    nowcast = local_nowcast(db, area_code=area, property_type=property_type)
+    streets = local_benchmarks(
+        db,
+        parent_area_code=area,
+        level="street",
+        property_type=property_type,
+        year=settings.ksh_local_year,
+    )
+    return templates.TemplateResponse(
+        request,
+        "local.html",
+        template_context(
+            request,
+            language,
+            districts=districts,
+            selected_area=area,
+            selected_type=property_type,
+            selected_year=settings.ksh_local_year,
+            nowcast=nowcast,
+            streets=streets,
+        ),
+    )
+
+
+@app.get("/valuation", response_class=HTMLResponse)
+def valuation_page(
+    request: Request,
+    district: str = Query("BUDAPEST-06"),
+    property_type: str = Query("condominium"),
+    db: Session = Depends(get_db),
+):
+    language = language_from_request(request)
+    districts = _budapest_district_options(db)
+    valid = {row.area_code for row in districts}
+    district = district if district in valid else "BUDAPEST-06"
+    property_type = property_type if property_type in {"condominium", "panel", "family_house", "total"} else "condominium"
+    local = local_nowcast(db, area_code=district, property_type=property_type)
+    latest = latest_market(db, "BUDAPEST", "second_hand")
+    baseline = local.nowcast_huf_m2 if local else (latest.price_huf_m2 if latest else 1_200_000)
     return templates.TemplateResponse(
         request,
         "valuation.html",
@@ -162,12 +257,13 @@ def valuation_page(
             request,
             language,
             result=None,
-            baseline_row=baseline_row,
-            areas=areas,
-            selected_area=area,
-            selected_market=market,
+            baseline=baseline,
             factors=DEFAULT_ADJUSTMENTS,
             fx=latest_fx(db),
+            districts=districts,
+            district=district,
+            property_type=property_type,
+            local_nowcast=local,
         ),
     )
 
@@ -175,32 +271,23 @@ def valuation_page(
 @app.post("/valuation", response_class=HTMLResponse)
 def valuation_calculate(
     request: Request,
-    area: str = Form("BUDAPEST"),
-    market: str = Form("second_hand"),
     floor_area: float = Form(...),
+    baseline: float = Form(...),
     factors: list[str] = Form(default=[]),
+    district: str = Form("BUDAPEST-06"),
+    property_type: str = Form("condominium"),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    _, areas, area, market = hungary_selection(area, market)
-    baseline_row = latest_market(db, area, market)
     try:
-        if baseline_row is None:
-            raise ValueError(
-                "Nincs elérhető piaci referencia ehhez a választáshoz."
-                if language == "hu"
-                else "No market benchmark is available for this selection."
-            )
-        result = value_property(
-            floor_area_m2=floor_area,
-            baseline_huf_m2=baseline_row.price_huf_m2,
-            factors=factors,
-        )
+        result = value_property(floor_area_m2=floor_area, baseline_huf_m2=baseline, factors=factors)
         error = None
     except ValueError as exc:
-        result, error = None, localized_error(language, exc)
+        result, error = None, str(exc)
     fx = latest_fx(db)
     conversions = converted_amounts(result.estimated_value_huf, fx) if result else {}
+    districts = _budapest_district_options(db)
+    local = local_nowcast(db, area_code=district, property_type=property_type)
     return templates.TemplateResponse(
         request,
         "valuation.html",
@@ -209,15 +296,16 @@ def valuation_calculate(
             language,
             result=result,
             error=error,
-            baseline_row=baseline_row,
+            baseline=baseline,
             floor_area=floor_area,
             selected_factors=factors,
-            areas=areas,
-            selected_area=area,
-            selected_market=market,
             factors=DEFAULT_ADJUSTMENTS,
             fx=fx,
             conversions=conversions,
+            districts=districts,
+            district=district,
+            property_type=property_type,
+            local_nowcast=local,
         ),
     )
 
@@ -260,7 +348,7 @@ def mortgage_calculate(
         )
         error = None
     except ValueError as exc:
-        result, error = None, localized_error(language, exc)
+        result, error = None, str(exc)
     return templates.TemplateResponse(
         request,
         "mortgage.html",
@@ -339,6 +427,64 @@ def market_api(
     }
 
 
+@app.get("/api/observed-market")
+def observed_market_api(
+    area: str = Query("BUDAPEST"),
+    market_class: str = Query("condominium"),
+    segment: str = Query("second_hand"),
+    db: Session = Depends(get_db),
+):
+    rows = observed_market_history(
+        db,
+        area_code=area,
+        market_class=market_class,
+        market_segment=segment,
+    )
+    return {
+        "provider": "duna_house",
+        "coverage": "observed_subset",
+        "area": area,
+        "market_class": market_class,
+        "market_segment": segment,
+        "series": [
+            {
+                "date": row.snapshot_date,
+                "sample": row.active_count,
+                "median_huf_m2": row.median_huf_m2,
+                "p25_huf_m2": row.p25_huf_m2,
+                "p75_huf_m2": row.p75_huf_m2,
+                "price_cut_share": row.price_cut_share,
+            }
+            for row in rows
+        ],
+    }
+
+
+@app.get("/api/local-market")
+def local_market_api(
+    area: str = Query("BUDAPEST-06"),
+    property_type: str = Query("condominium"),
+    db: Session = Depends(get_db),
+):
+    estimate = local_nowcast(db, area_code=area, property_type=property_type)
+    if estimate is None:
+        return {"available": False, "area": area, "property_type": property_type}
+    return {
+        "available": True,
+        "area": area,
+        "area_name": estimate.area_name,
+        "property_type": property_type,
+        "official_year": estimate.source_year,
+        "official_huf_m2": estimate.official_huf_m2,
+        "official_transactions": estimate.official_transactions,
+        "relative_std_pct": estimate.relative_std_pct,
+        "nowcast_huf_m2": estimate.nowcast_huf_m2,
+        "confidence": estimate.confidence,
+        "method": "annual local KSH benchmark rolled forward by Budapest second-hand transaction trend",
+        "latest_budapest_period": estimate.latest_period,
+    }
+
+
 @app.get("/api/health")
 def health_api(db: Session = Depends(get_db)):
     ready, checks = readiness(db)
@@ -348,14 +494,13 @@ def health_api(db: Session = Depends(get_db)):
         "checks": checks,
         "sources": [
             {
-                "source": source.source_key,
-                "state": source.state,
-                "last_success": source.last_success_at,
-                "last_attempt": source.last_attempt_at,
-                "failures": source.consecutive_failures,
-                "last_error": source.last_error,
+                "source": s.source_key,
+                "state": s.state,
+                "last_success": s.last_success_at,
+                "last_attempt": s.last_attempt_at,
+                "failures": s.consecutive_failures,
             }
-            for source in sources
+            for s in sources
         ],
     }
 
@@ -367,6 +512,6 @@ def operations_refresh(
 ):
     if not settings.admin_key:
         raise HTTPException(status_code=503, detail="ADMIN_KEY is not configured")
-    if not secrets.compare_digest(x_admin_key or "", settings.admin_key):
+    if x_admin_key != settings.admin_key:
         raise HTTPException(status_code=403, detail="Invalid admin key")
     return run_daily_collection(db)
