@@ -5,13 +5,13 @@ import re
 from datetime import date
 from importlib.resources import files
 
-import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import MarketSnapshot
+from app.services.http import request_with_retry
 from app.services.source_health import mark_failure, mark_success
 
 KSH_SOURCE_KEY = "ksh_housing_prices"
@@ -96,7 +96,7 @@ def _number(value: str) -> int | None:
 
 
 def parse_ksh_benchmarks(html: str) -> list[dict]:
-    """Parse the two deliberately supported KSH series.
+    """Parse the deliberately supported KSH series.
 
     The parser is intentionally narrow. If KSH changes the table structure, collection fails
     rather than guessing. The caller then keeps the last known-good data.
@@ -168,9 +168,12 @@ def parse_ksh_benchmarks(html: str) -> list[dict]:
 def refresh_ksh(db: Session) -> dict:
     settings = get_settings()
     try:
-        with httpx.Client(timeout=settings.http_timeout_seconds, follow_redirects=True) as client:
-            response = client.get(settings.ksh_market_url, headers={"User-Agent": "real-estate-watch/0.1"})
-            response.raise_for_status()
+        response = request_with_retry(
+            "GET",
+            settings.ksh_market_url,
+            timeout=settings.http_timeout_seconds,
+            headers={"User-Agent": "real-estate-watch/0.1"},
+        )
         parsed = parse_ksh_benchmarks(response.text)
         for item in parsed:
             upsert_market_snapshot(db, item)
