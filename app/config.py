@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     self_heal_enabled: bool = True
 
     notify_webhook_url: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    notify_email_to: str | None = None
     market_notify_change_percent: float = 1.0
     admin_key: str | None = None
 
@@ -34,6 +42,5 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-
 def get_settings() -> Settings:
     return Settings()
