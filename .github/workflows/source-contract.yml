@@ -9,6 +9,8 @@ on:
       - '.github/workflows/source-contract.yml'
       - 'app/services/duna_house.py'
       - 'app/services/ksh_local.py'
+      - 'app/services/market.py'
+      - 'app/services/fx.py'
       - 'app/config.py'
 
 permissions:
@@ -17,7 +19,7 @@ permissions:
 jobs:
   live-sources:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,39 +29,99 @@ jobs:
       - run: pip install -e .
       - name: Prepare local reference database
         run: python -m app.cli seed
-      - name: Check live KSH price contract
-        run: python -m app.cli collect-market
-      - name: Check live KSH transaction-count contract
-        run: python -m app.cli collect-counts
+
+      # Keep diagnostics ahead of source collectors so an unrelated transient source timeout
+      # cannot hide the information needed to repair another provider contract.
       - name: Diagnose granular KSH response shape
+        id: ksh_local_shape
+        continue-on-error: true
         run: |
           python - <<'PY'
+          import re
           import httpx
           from bs4 import BeautifulSoup
+          from urllib.parse import urljoin
+
           url = 'https://www.ksh.hu/s/ingatlanadattar/adattar?ter=01&year=2024'
           headers = {
               'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36',
               'Accept-Language': 'hu-HU,hu;q=0.9,en;q=0.5',
           }
-          response = httpx.get(url, headers=headers, follow_redirects=True, timeout=20)
+          response = httpx.get(url, headers=headers, follow_redirects=True, timeout=30)
+          response.raise_for_status()
           soup = BeautifulSoup(response.text, 'html.parser')
           tables = soup.find_all('table')
+          scripts = [urljoin(str(response.url), x.get('src')) for x in soup.find_all('script') if x.get('src')]
+          downloads = []
+          for tag in soup.find_all(['a', 'form']):
+              text = tag.get_text(' ', strip=True).casefold()
+              target = tag.get('href') or tag.get('action')
+              if target and any(word in (text + ' ' + str(target).casefold()) for word in ('ment', 'csv', 'xlsx', 'excel', 'download', 'export')):
+                  downloads.append(urljoin(str(response.url), target))
+          inline = '\n'.join(x.string or '' for x in soup.find_all('script') if not x.get('src'))
+          endpoint_hints = sorted(set(re.findall(r"[\"']([^\"']*(?:api|ajax|json|csv|xlsx|export|download)[^\"']*)[\"']", inline, re.I)))[:40]
           print('status=', response.status_code, 'url=', response.url, 'bytes=', len(response.text), 'tables=', len(tables))
           print('title=', soup.title.get_text(' ', strip=True) if soup.title else None)
-          print('scripts=', [x.get('src') for x in soup.find_all('script') if x.get('src')][-20:])
+          print('scripts=', scripts[-30:])
           print('forms=', [(x.get('action'), x.get('method')) for x in soup.find_all('form')])
-          print('table_row_cell_counts=', [[len(r.find_all(['th','td'])) for r in t.find_all('tr')[:12]] for t in tables[:5]])
+          print('download_candidates=', downloads[:30])
+          print('endpoint_hints=', endpoint_hints)
+          print('table_row_cell_counts=', [[len(r.find_all(['th','td'])) for r in t.find_all('tr')[:12]] for t in tables[:8]])
           print('data_markers=', 'Budapest 06. kerület' in response.text, '1&nbsp;132' in response.text, '1132' in response.text)
           PY
+
+      - name: Check live KSH price contract
+        id: ksh_prices
+        continue-on-error: true
+        run: python -m app.cli collect-market
+      - name: Check live KSH transaction-count contract
+        id: ksh_counts
+        continue-on-error: true
+        run: python -m app.cli collect-counts
       - name: Check granular KSH district and street contract
+        id: ksh_local
+        continue-on-error: true
         run: python -m app.cli collect-local
       # Production FX uses MNB's public latest-rates page. The older documented SOAP route
       # returned HTTP 404 during the first live contract check in August 2026.
       - name: Check live MNB exchange-rate contract
+        id: mnb_fx
+        continue-on-error: true
         run: python -m app.cli collect-fx
       # This is deliberately a probe: policy + sitemap + one listing page. CI never performs
       # a bulk Duna House listing collection.
       - name: Check guarded Duna House discovery and factual-page contract
+        id: duna_house
+        continue-on-error: true
         run: python -m app.cli probe-dh
       - name: Run resulting self-checks
+        id: self_check
+        continue-on-error: true
         run: python -m app.cli self-check
+
+      - name: Enforce source-contract results
+        if: always()
+        env:
+          KSH_LOCAL_SHAPE: ${{ steps.ksh_local_shape.outcome }}
+          KSH_PRICES: ${{ steps.ksh_prices.outcome }}
+          KSH_COUNTS: ${{ steps.ksh_counts.outcome }}
+          KSH_LOCAL: ${{ steps.ksh_local.outcome }}
+          MNB_FX: ${{ steps.mnb_fx.outcome }}
+          DUNA_HOUSE: ${{ steps.duna_house.outcome }}
+          SELF_CHECK: ${{ steps.self_check.outcome }}
+        run: |
+          printf '%-24s %s\n' \
+            'KSH shell diagnostic' "$KSH_LOCAL_SHAPE" \
+            'KSH quarterly prices' "$KSH_PRICES" \
+            'KSH transaction counts' "$KSH_COUNTS" \
+            'KSH granular' "$KSH_LOCAL" \
+            'MNB FX' "$MNB_FX" \
+            'Duna House probe' "$DUNA_HOUSE" \
+            'Application self-check' "$SELF_CHECK"
+          test "$KSH_LOCAL_SHAPE" = success
+          test "$KSH_PRICES" = success
+          test "$KSH_COUNTS" = success
+          test "$KSH_LOCAL" = success
+          test "$MNB_FX" = success
+          test "$DUNA_HOUSE" = success
+          test "$SELF_CHECK" = success
