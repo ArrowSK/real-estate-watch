@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ t.mortgage }} · {{ t.app_name }}{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <p class="eyebrow">Hungary / Magyarország</p>
+  <h1>{{ t.mortgage_title }}</h1>
+  <p class="muted">{{ t.mortgage_source_line }}</p>
+</section>
+
+<div class="two-column mortgage-layout">
+  <form class="card form-card" method="post">
+    <label>{{ t.purchase_price }}
+      <input type="number" name="purchase_price" min="1000000" step="100000" required value="{{ values.purchase_price|default(80000000) }}">
+    </label>
+    <label>{{ t.down_payment }}
+      <input type="number" name="down_payment" min="0" step="100000" required value="{{ values.down_payment|default(16000000) }}">
+    </label>
+    <label>{{ t.net_income }}
+      <input type="number" name="net_income" min="0" step="10000" required value="{{ values.net_income|default(1000000) }}">
+    </label>
+    <label>{{ t.existing_debt }}
+      <input type="number" name="existing_debt" min="0" step="1000" value="{{ values.existing_debt|default(0) }}">
+    </label>
+    <div class="form-row">
+      <label>{{ t.interest_rate }}
+        <input type="number" name="interest_rate" min="0" max="30" step="0.01" required value="{{ values.interest_rate|default(6.5) }}">
+      </label>
+      <label>{{ t.term_years }}
+        <input type="number" name="term_years" min="1" max="40" required value="{{ values.term_years|default(20) }}">
+      </label>
+    </div>
+    <label>{{ t.fixation }}
+      <select name="fixation_years">
+        {% set f = values.fixation_years|default(10) %}
+        <option value="1" {% if f == 1 %}selected{% endif %}>&lt; 5 years</option>
+        <option value="5" {% if f == 5 %}selected{% endif %}>5–9 years</option>
+        <option value="10" {% if f == 10 %}selected{% endif %}>10+ years / fixed</option>
+      </select>
+    </label>
+    <label class="check-row"><input type="checkbox" name="first_home" value="true" {% if values.first_home|default(false) %}checked{% endif %}><span>{{ t.first_home }}</span></label>
+    <label class="check-row"><input type="checkbox" name="green" value="true" {% if values.green|default(false) %}checked{% endif %}><span>{{ t.green }}</span></label>
+    <button type="submit">{{ t.calculate }}</button>
+  </form>
+
+  <div>
+    {% if error %}<div class="notice warning"><p>{{ error }}</p></div>{% endif %}
+    {% if result %}
+    <section class="card result-card">
+      <p class="label">{{ t.monthly_payment }}</p>
+      <p class="metric">{{ fmt(result.monthly_payment_huf, 0) }} <span>HUF</span></p>
+      <div class="result-list">
+        <div><span>{{ t.loan }}</span><strong>{{ fmt(result.loan_huf, 0) }} HUF</strong></div>
+        <div><span>{{ t.total_interest }}</span><strong>{{ fmt(result.total_interest_huf, 0) }} HUF</strong></div>
+        <div><span>{{ t.transfer_tax }}</span><strong>{{ fmt(result.transfer_tax_huf, 0) }} HUF</strong></div>
+        <div><span>{{ t.cash_required }}</span><strong>{{ fmt(result.estimated_cash_required_huf, 0) }} HUF</strong></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>{{ t.regulatory_result }}</h2>
+      <p class="status-line {{ 'ok' if result.debt_brake.passes else 'bad' }}">{{ t.passes if result.debt_brake.passes else t.fails }}</p>
+      <div class="result-list">
+        <div><span>{{ t.ltv }}</span><strong>{{ "%.1f"|format(result.debt_brake.ltv * 100) }}% / {{ "%.0f"|format(result.debt_brake.ltv_limit * 100) }}%</strong></div>
+        <div><span>{{ t.jtm }}</span><strong>{{ "%.1f"|format(result.debt_brake.jtm * 100) }}% / {{ "%.0f"|format(result.debt_brake.jtm_limit * 100) }}%</strong></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>{{ t.stress }}</h2>
+      <div class="result-list">
+        {% for item in result.stress %}
+        <div><span>{{ "%.2f"|format(item.rate_percent) }}%</span><strong>{{ fmt(item.monthly_payment_huf, 0) }} HUF/{{ t.per_month }}</strong></div>
+        {% endfor %}
+      </div>
+    </section>
+    {% else %}
+    <section class="card empty-state"><p class="muted">{{ t.not_bank_offer }}</p></section>
+    {% endif %}
+  </div>
+</div>
+
+<section class="notice">
+  <p>{{ t.not_bank_offer }}</p>
+  <p class="small">{{ t.cash_note }}</p>
+</section>
+{% endblock %}
