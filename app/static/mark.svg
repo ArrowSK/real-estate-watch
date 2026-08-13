@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Real Estate Watch">
+  <rect width="64" height="64" rx="14" fill="#172521"/>
+  <path d="M11 48h42" fill="none" stroke="#f2ede4" stroke-width="2" stroke-linecap="round"/>
+  <path d="M15 46V30h9v16m5 0V19h10v27m5 0V26h6v20" fill="none" stroke="#f2ede4" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M13 39l9-7 8 3 9-10 11-8" fill="none" stroke="#d76a48" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="50" cy="17" r="3" fill="#d76a48"/>
+</svg>
