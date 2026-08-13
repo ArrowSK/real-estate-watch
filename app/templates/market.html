@@ -1,20 +1,20 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ t.market }} · {{ t.app_name }}{% endblock %}
 {% block content %}
-<section class="hero compact">
+<section class="hero ledger-hero">
   <div>
-    <p class="eyebrow">Hungary / Magyarország</p>
+    <p class="eyebrow">KSH · completed residential transactions</p>
     <h1>{{ t.current_benchmark }}</h1>
-    <p class="muted">{{ t.official_transaction_data }} · KSH</p>
+    <p class="hero-copy">{{ t.data_caveat }}</p>
   </div>
+  <div class="hero-stamps"><span class="stamp ok">{{ icon('shield', 15) }} Official source</span><span class="stamp">Mean · not median</span></div>
 </section>
 
-<form class="filter-bar" method="get" action="/">
+<form class="filter-bar technical" method="get" action="/">
   <label>{{ t.area }}
     <select name="area">
-      {% for item in areas %}
-      <option value="{{ item.code }}" {% if item.code == selected_area %}selected{% endif %}>{{ item.name_hu if lang == 'hu' else item.name_en }}</option>
-      {% endfor %}
+      {% for item in areas %}<option value="{{ item.code }}" {% if item.code == selected_area %}selected{% endif %}>{{ item.name_hu if lang == 'hu' else item.name_en }}</option>{% endfor %}
     </select>
   </label>
   <label>{{ t.market }}
@@ -23,65 +23,47 @@
       <option value="new" {% if selected_market == 'new' %}selected{% endif %}>{{ t.new }}</option>
     </select>
   </label>
-  <label>{{ 'Időtáv' if lang == 'hu' else 'Trend range' }}
-    <select name="range">
-      <option value="6m" {% if selected_range == '6m' %}selected{% endif %}>{{ '6 hónap' if lang == 'hu' else '6 months' }}</option>
-      <option value="1y" {% if selected_range == '1y' %}selected{% endif %}>{{ '1 év' if lang == 'hu' else '1 year' }}</option>
-      <option value="all" {% if selected_range == 'all' %}selected{% endif %}>{{ 'Teljes idősor' if lang == 'hu' else 'All history' }}</option>
-    </select>
-  </label>
   <button type="submit">{{ t.calculate }}</button>
 </form>
 
 {% if latest %}
-<section class="grid metrics-grid">
-  <article class="card metric-card primary">
-    <p class="label">{{ t.price_per_m2 }}</p>
-    <p class="metric">{{ fmt(latest.price_huf_m2, 0) }} <span>HUF/m²</span></p>
-    <p class="submetric">
-      {% if converted.EUR %}€{{ fmt(converted.EUR, 0) }}{% else %}—{% endif %}
-      <span>·</span>
-      {% if converted.USD %}${{ fmt(converted.USD, 0) }}{% else %}—{% endif %}
-    </p>
+<section class="metric-strip">
+  <article class="metric-cell lead">
+    <div class="metric-kicker">{{ icon('market', 18) }} {{ t.price_per_m2 }}</div>
+    <div class="metric-value">{{ fmt(latest.price_huf_m2, 0) }} <small>HUF/m²</small></div>
+    <div class="metric-foot">{{ selected_area }} · {{ selected_market }}</div>
   </article>
-  <article class="card">
-    <p class="label">{{ t.period }}</p>
-    <p class="large-text">{{ latest.period }}</p>
-    <p class="muted">{{ latest.observation_date }}</p>
+  <article class="metric-cell">
+    <div class="metric-kicker">{{ t.period }}</div>
+    <div class="metric-value compact">{{ latest.period }}</div>
+    <div class="metric-foot">{{ latest.observation_date }}</div>
   </article>
-  <article class="card">
-    <p class="label">{{ 'Tranzakciók' if lang == 'hu' else 'Transactions' }}</p>
-    <p class="large-text">{{ fmt(latest.sample_size, 0) if latest.sample_size is not none else '—' }}</p>
-    <p class="muted">{{ 'KSH 18.2.2.15 · ugyanaz az időszak' if lang == 'hu' else 'KSH 18.2.2.15 · same period' }}</p>
+  <article class="metric-cell">
+    <div class="metric-kicker">{{ icon('sample', 18) }} {{ t.transactions }}</div>
+    <div class="metric-value compact">{{ latest.sample_size or '—' }}</div>
+    <div class="metric-foot">KSH published count where available</div>
   </article>
-  <article class="card">
-    <p class="label">{{ t.source }}</p>
-    <p class="large-text">KSH STADAT 18.2.2.14</p>
-    <a href="{{ latest.source_url }}" rel="noreferrer">{{ t.official_table }}</a>
+  <article class="metric-cell">
+    <div class="metric-kicker">EUR · USD</div>
+    <div class="metric-value compact">{% if converted.EUR %}€{{ fmt(converted.EUR, 0) }}{% else %}—{% endif %}</div>
+    <div class="metric-foot">{% if converted.USD %}${{ fmt(converted.USD, 0) }} /m²{% else %}{{ t.no_fx }}{% endif %}</div>
   </article>
 </section>
 
-<section class="card chart-card">
-  <div class="section-heading">
-    <div>
-      <p class="eyebrow">{{ selected_area }}</p>
-      <h2>{{ t.trend }}</h2>
-    </div>
-    <span class="pill">HUF/m² · {{ selected_range|upper }}</span>
+<section class="panel chart-panel">
+  <div class="panel-head">
+    <div><p class="eyebrow">{{ selected_area }}</p><h2>{{ t.trend }}</h2></div>
+    <span class="unit-chip">HUF/m² · KSH mean</span>
   </div>
-  <div class="chart-wrap">
-    <canvas id="marketChart" aria-label="{{ t.trend }}" data-series='{{ chart | tojson }}'></canvas>
-  </div>
+  <div class="chart-wrap"><canvas id="marketChart" data-market-chart data-tone="official" data-series='{{ chart | tojson }}' aria-label="{{ t.trend }}"></canvas></div>
 </section>
 
-<section class="notice">
-  <p><strong>{{ t.mean_note }}</strong></p>
-  <p>{{ t.data_caveat }}</p>
-  <p class="small">{{ 'A tranzakciószám külön KSH táblából származik, és csak sikeres élő frissítés után jelenik meg.' if lang == 'hu' else 'Transaction counts come from a separate KSH table and appear after a successful live refresh.' }}</p>
-  <p class="small">{{ t.small_currency_note }}</p>
-  {% if not fx %}<p class="small warning-text">{{ t.no_fx }}</p>{% endif %}
+<section class="provenance-band">
+  <div>{{ icon('source', 19) }}<strong>{{ t.source }}</strong><span><a href="{{ latest.source_url }}" rel="noreferrer">KSH STADAT 18.2.2.14 · {{ t.official_table }}</a></span></div>
+  <div>{{ icon('market', 19) }}<strong>{{ t.method }}</strong><span>{{ t.mean_note }}</span></div>
+  <div>{{ icon('trend', 19) }}<strong>FX</strong><span>{{ t.small_currency_note }}</span></div>
 </section>
 {% else %}
-<section class="notice warning"><p>{{ t.not_available }}</p></section>
+<section class="empty-ledger"><h2>{{ t.not_available }}</h2></section>
 {% endif %}
 {% endblock %}
