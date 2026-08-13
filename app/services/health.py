@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
