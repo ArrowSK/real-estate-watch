@@ -17,6 +17,42 @@ from app.services.source_health import mark_failure, mark_success
 KSH_SOURCE_KEY = "ksh_housing_prices"
 KSH_SOURCE_URL = "https://www.ksh.hu/stadat_files/lak/en/lak0052.html"
 
+KSH_AREA_ROWS: dict[tuple[str, str], tuple[str, str, str]] = {
+    ("Budapest", "capital"): ("BUDAPEST", "Budapest", "Budapest"),
+    ("Pest", "together"): ("PEST", "Pest region", "Pest régió"),
+    ("Central Transdanubia", "together"): (
+        "CENTRAL_TRANSDANUBIA",
+        "Central Transdanubia",
+        "Közép-Dunántúl",
+    ),
+    ("Western Transdanubia", "together"): (
+        "WESTERN_TRANSDANUBIA",
+        "Western Transdanubia",
+        "Nyugat-Dunántúl",
+    ),
+    ("Southern Transdanubia", "together"): (
+        "SOUTHERN_TRANSDANUBIA",
+        "Southern Transdanubia",
+        "Dél-Dunántúl",
+    ),
+    ("Northern Hungary", "together"): (
+        "NORTHERN_HUNGARY",
+        "Northern Hungary",
+        "Észak-Magyarország",
+    ),
+    ("Northern Great Plain", "together"): (
+        "NORTHERN_GREAT_PLAIN",
+        "Northern Great Plain",
+        "Észak-Alföld",
+    ),
+    ("Southern Great Plain", "together"): (
+        "SOUTHERN_GREAT_PLAIN",
+        "Southern Great Plain",
+        "Dél-Alföld",
+    ),
+    ("Country", "total"): ("HU", "Hungary", "Magyarország"),
+}
+
 
 def _quarter_end(year: int, quarter: int) -> date:
     return date(year, quarter * 3, (31, 30, 30, 31)[quarter - 1])
@@ -122,15 +158,11 @@ def parse_ksh_benchmarks(html: str) -> list[dict]:
         if current_market is None or len(cells) < 3:
             continue
 
-        area_code = None
-        area_en = None
-        area_hu = None
-        if cells[0].strip() == "Budapest" and cells[1].strip().lower() == "capital":
-            area_code, area_en, area_hu = "BUDAPEST", "Budapest", "Budapest"
-        elif cells[0].strip() == "Country" and cells[1].strip().lower() == "total":
-            area_code, area_en, area_hu = "HU", "Hungary", "Magyarország"
-        if not area_code:
+        row_key = (cells[0].strip(), cells[1].strip().lower())
+        descriptor = KSH_AREA_ROWS.get(row_key)
+        if descriptor is None:
             continue
+        area_code, area_en, area_hu = descriptor
 
         values = [_number(x) for x in cells[2:]]
         for idx, value in enumerate(values):
