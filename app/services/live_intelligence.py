@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
 from sqlalchemy import select
@@ -11,7 +11,6 @@ from app.models import (
     AskingMarketSnapshot,
     ListingSnapshot,
     LocalBenchmark,
-    MarketSnapshot,
     ObservedListing,
     ObservedListingAttribute,
 )
@@ -164,20 +163,26 @@ def live_signals(
         for row in usable_rows
     ]
     new_today = sum(1 for row in usable_rows if _aware(row.first_seen_at).date() == now.date())
-    new_7d = sum(1 for row in usable_rows if now - _aware(row.first_seen_at) <= timedelta(days=7))
+    new_7d = sum(
+        1 for row in usable_rows if now - _aware(row.first_seen_at) <= timedelta(days=7)
+    )
 
     postcode_counts: dict[str, int] = {}
     for row in usable_rows:
         if row.postcode:
             postcode_counts[row.postcode] = postcode_counts.get(row.postcode, 0) + 1
 
-    attributes = list(
-        db.scalars(
-            select(ObservedListingAttribute).where(
-                ObservedListingAttribute.listing_id.in_(listing_ids)
+    attributes = (
+        list(
+            db.scalars(
+                select(ObservedListingAttribute).where(
+                    ObservedListingAttribute.listing_id.in_(listing_ids)
+                )
             )
         )
-    ) if listing_ids else []
+        if listing_ids
+        else []
+    )
     attribute_by_listing = {row.listing_id: row for row in attributes}
     feature_fields = (
         "building_type",
@@ -203,9 +208,7 @@ def live_signals(
         listings_with_attributes += int(count > 0)
 
     sample_size = len(usable_rows)
-    listing_coverage = (
-        listings_with_attributes / sample_size * 100 if sample_size else None
-    )
+    listing_coverage = listings_with_attributes / sample_size * 100 if sample_size else None
     field_coverage = (
         populated_fields / (sample_size * len(feature_fields)) * 100 if sample_size else None
     )
@@ -240,7 +243,8 @@ def live_history(
     rows = asking_market_series(db, area_code, property_type, market_segment)
     if property_type != "all" and not rows:
         rows = asking_market_series(db, area_code, "all", market_segment)
-    rows = rows[-max(days, 1):]
+    cutoff = date.today() - timedelta(days=max(days, 1))
+    rows = [row for row in rows if row.snapshot_date >= cutoff]
     return [
         {
             "date": row.snapshot_date.isoformat(),
