@@ -8,13 +8,29 @@ Source: Hungarian Central Statistical Office (KSH), STADAT table 18.2.2.14.
 
 `https://www.ksh.hu/stadat_files/lak/en/lak0052.html`
 
-The application currently uses the quarterly **mean price per square metre** series for completed housing transactions. The source separates second-hand and new dwellings and includes Budapest and national aggregates.
+The application currently uses the quarterly **mean price per square metre** series for completed housing transactions. The source separates second-hand and new dwellings.
+
+The selectable areas currently match rows that the quarterly KSH table actually publishes at a consistent level:
+
+- Budapest;
+- Pest region;
+- Central Transdanubia;
+- Western Transdanubia;
+- Southern Transdanubia;
+- Northern Hungary;
+- Northern Great Plain;
+- Southern Great Plain;
+- Hungary as a national aggregate.
+
+These are not counties, Budapest districts or neighbourhoods. Those need a different data source and should not be inferred from the broad regional series.
 
 This is not a live asking-price feed. It is also not a median. The UI says this explicitly.
 
-KSH marks some recent data as preliminary and may revise them. The collector therefore upserts an existing KSH quarter after the replacement value passes basic validation.
+KSH marks some recent data as preliminary and may revise them. The live collector therefore upserts an existing KSH quarter after the replacement value passes validation.
 
-The bundled seed file under `app/countries/hu/data/market_seed.json` exists for resilience and first start. It is source-attributed reference data, not a second independent source.
+The bundled files under `app/countries/hu/data/` exist for first start and recovery. They are source-attributed KSH reference observations, not independent market sources. Startup and self-healing only insert a bundled observation when that database row is missing. They never overwrite a row already collected from live KSH, because doing so could replace a later official revision with an older bundled value.
+
+Some regional new-build quarters are blank in KSH because no publishable value is available. Real Estate Watch leaves those quarters missing instead of interpolating them.
 
 ## MNB exchange rates
 
@@ -54,10 +70,17 @@ Special exemptions and reliefs are not automatically assumed. Examples include r
 
 The planned product needs a lawful, stable source for active Hungarian residential listings. That source must support enough fields to deduplicate listings, calculate asking-price medians, follow price cuts and estimate days on market.
 
-Until such a feed is selected, Real Estate Watch does not label KSH transaction means as "current asking prices".
+Until such a feed is selected, Real Estate Watch does not label KSH transaction means as "current asking prices" and does not manufacture district-level estimates from national or regional averages.
 
 ### Mortgage products
 
 The current build calculates a mortgage from the interest rate supplied by the user and applies MNB regulatory screens. It does not maintain a bank-product catalogue yet.
 
-A production mortgage-product provider needs an authoritative or contractually stable source with product update dates, APR/THM, fixation, term, amount limits and eligibility details. The provider must preserve the source date and should never present a cached offer as current after the source has gone stale.
+Two official MNB tools are useful candidates for the product-provider stage:
+
+- Hitel- és lízingtermék-kereső: `https://hitelvalaszto.mnb.hu/termekkereso`
+- Minősített Fogyasztóbarát Lakáshitel calculator: `https://minositetthitel.mnb.hu/kalkulator`
+
+They are suitable official comparison references, but the project does not currently rely on an undocumented machine endpoint behind either site. Before automating product collection, the provider needs a documented or otherwise maintainable data interface with product update dates, THM/APR, fixation, term, amount limits and eligibility details.
+
+Until that exists, the app asks for an interest rate and labels the result as a calculation and regulatory screen, not a live bank offer.
