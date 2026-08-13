@@ -23,6 +23,13 @@
       <option value="new" {% if selected_market == 'new' %}selected{% endif %}>{{ t.new }}</option>
     </select>
   </label>
+  <label>{{ 'Időtáv' if lang == 'hu' else 'Trend range' }}
+    <select name="range">
+      <option value="6m" {% if selected_range == '6m' %}selected{% endif %}>{{ '6 hónap' if lang == 'hu' else '6 months' }}</option>
+      <option value="1y" {% if selected_range == '1y' %}selected{% endif %}>{{ '1 év' if lang == 'hu' else '1 year' }}</option>
+      <option value="all" {% if selected_range == 'all' %}selected{% endif %}>{{ 'Teljes idősor' if lang == 'hu' else 'All history' }}</option>
+    </select>
+  </label>
   <button type="submit">{{ t.calculate }}</button>
 </form>
 
@@ -43,6 +50,11 @@
     <p class="muted">{{ latest.observation_date }}</p>
   </article>
   <article class="card">
+    <p class="label">{{ 'Tranzakciók' if lang == 'hu' else 'Transactions' }}</p>
+    <p class="large-text">{{ fmt(latest.sample_size, 0) if latest.sample_size is not none else '—' }}</p>
+    <p class="muted">{{ 'KSH 18.2.2.15 · ugyanaz az időszak' if lang == 'hu' else 'KSH 18.2.2.15 · same period' }}</p>
+  </article>
+  <article class="card">
     <p class="label">{{ t.source }}</p>
     <p class="large-text">KSH STADAT 18.2.2.14</p>
     <a href="{{ latest.source_url }}" rel="noreferrer">{{ t.official_table }}</a>
@@ -55,7 +67,7 @@
       <p class="eyebrow">{{ selected_area }}</p>
       <h2>{{ t.trend }}</h2>
     </div>
-    <span class="pill">HUF/m²</span>
+    <span class="pill">HUF/m² · {{ selected_range|upper }}</span>
   </div>
   <div class="chart-wrap">
     <canvas id="marketChart" aria-label="{{ t.trend }}" data-series='{{ chart | tojson }}'></canvas>
@@ -65,6 +77,7 @@
 <section class="notice">
   <p><strong>{{ t.mean_note }}</strong></p>
   <p>{{ t.data_caveat }}</p>
+  <p class="small">{{ 'A tranzakciószám külön KSH táblából származik, és csak sikeres élő frissítés után jelenik meg.' if lang == 'hu' else 'Transaction counts come from a separate KSH table and appear after a successful live refresh.' }}</p>
   <p class="small">{{ t.small_currency_note }}</p>
   {% if not fx %}<p class="small warning-text">{{ t.no_fx }}</p>{% endif %}
 </section>
