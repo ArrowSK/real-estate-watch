@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from xml.etree import ElementTree as ET
+import re
+from datetime import date
 
+from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,40 +14,85 @@ from app.services.source_health import mark_failure, mark_success
 
 MNB_FX_SOURCE_KEY = "mnb_fx"
 
-SOAP_ENVELOPE = """<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <GetCurrentExchangeRates xmlns="http://www.mnb.hu/webservices/" />
-  </soap:Body>
-</soap:Envelope>
-"""
+_HU_MONTHS = {
+    "január": 1,
+    "február": 2,
+    "március": 3,
+    "április": 4,
+    "május": 5,
+    "június": 6,
+    "július": 7,
+    "augusztus": 8,
+    "szeptember": 9,
+    "október": 10,
+    "november": 11,
+    "december": 12,
+}
 
 
 def _parse_decimal(text: str) -> float:
-    return float(text.strip().replace(" ", "").replace(",", "."))
+    return float(text.strip().replace("\xa0", " ").replace(" ", "").replace(",", "."))
 
 
-def parse_mnb_current_rates(xml_text: str) -> tuple[date, dict[str, float]]:
-    root = ET.fromstring(xml_text)
-    result_node = next((n for n in root.iter() if n.tag.endswith("GetCurrentExchangeRatesResult")), None)
-    if result_node is None or not result_node.text:
-        raise ValueError("MNB exchange-rate result missing")
-    inner = ET.fromstring(result_node.text)
-    day = next((n for n in inner.iter() if n.tag.endswith("Day")), None)
-    if day is None:
-        raise ValueError("MNB exchange-rate day missing")
-    rate_date = datetime.strptime(day.attrib["date"], "%Y-%m-%d").date()
+def _parse_mnb_rate_date(page_text: str) -> date:
+    match = re.search(
+        r"Napi\s+árfolyamok\s*:\s*(\d{4})\.\s*([a-záéíóöőúüű]+)\s+(\d{1,2})\.",
+        page_text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        raise ValueError("MNB latest-rates date not found")
+    year = int(match.group(1))
+    month_name = match.group(2).lower()
+    month = _HU_MONTHS.get(month_name)
+    if month is None:
+        raise ValueError(f"Unknown Hungarian month name in MNB response: {month_name}")
+    return date(year, month, int(match.group(3)))
+
+
+def parse_mnb_current_rates(html: str) -> tuple[date, dict[str, float]]:
+    """Parse the official MNB latest-rates page.
+
+    The older SOAP endpoint is still documented by MNB, but in August 2026 its public POST
+    route returned HTTP 404 in our live contract check. The public latest-rates page is an
+    official MNB source, exposes the same published daily rates, and can be validated without
+    depending on an undocumented SOAP routing workaround.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    page_text = soup.get_text(" ", strip=True)
+    rate_date = _parse_mnb_rate_date(page_text)
+
     rates: dict[str, float] = {}
-    for node in day:
-        if not node.tag.endswith("Rate") or not node.text:
+    for row in soup.find_all("tr"):
+        cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["th", "td"])]
+        if len(cells) < 4:
             continue
-        currency = node.attrib.get("curr")
-        unit = float(node.attrib.get("unit", "1"))
-        if currency in {"EUR", "USD"}:
-            rates[currency] = _parse_decimal(node.text) / unit
+        currency = cells[0].strip().upper()
+        if currency not in {"EUR", "USD"}:
+            continue
+        try:
+            unit = _parse_decimal(cells[2])
+            value_huf = _parse_decimal(cells[3])
+        except ValueError as exc:
+            raise ValueError(f"Malformed {currency} row in MNB response") from exc
+        if unit <= 0:
+            raise ValueError(f"Invalid {currency} unit in MNB response")
+        rates[currency] = value_huf / unit
+
     if set(rates) != {"EUR", "USD"}:
         raise ValueError("MNB response did not contain both EUR and USD")
     return rate_date, rates
+
+
+def validate_rate_date(rate_date: date) -> None:
+    age_days = (date.today() - rate_date).days
+    if age_days < -1:
+        raise ValueError(f"MNB rate date is unexpectedly in the future: {rate_date.isoformat()}")
+    # Weekends and Hungarian public holidays can legitimately leave the most recent fixing a
+    # few days old. Ten days is deliberately generous but still prevents a stale archived page
+    # from being accepted as current indefinitely.
+    if age_days > 10:
+        raise ValueError(f"MNB latest official rate is unexpectedly old: {rate_date.isoformat()}")
 
 
 def validate_rate(currency: str, value: float, previous: float | None = None) -> None:
@@ -75,22 +121,21 @@ def latest_fx(db: Session) -> dict[str, FxSnapshot]:
 def refresh_mnb_fx(db: Session) -> dict:
     settings = get_settings()
     previous = latest_fx(db)
-    headers = {
-        "Content-Type": "text/xml; charset=utf-8",
-        "SOAPAction": "http://www.mnb.hu/webservices/MNBArfolyamServiceSoap/GetCurrentExchangeRates",
-        "User-Agent": "real-estate-watch/0.1",
-    }
     try:
         response = request_with_retry(
-            "POST",
+            "GET",
             settings.mnb_fx_url,
             timeout=settings.http_timeout_seconds,
-            content=SOAP_ENVELOPE.encode(),
-            headers=headers,
+            headers={"User-Agent": "real-estate-watch/0.1"},
         )
         rate_date, rates = parse_mnb_current_rates(response.text)
+        validate_rate_date(rate_date)
         for currency, value in rates.items():
-            validate_rate(currency, value, previous.get(currency).huf_per_unit if currency in previous else None)
+            validate_rate(
+                currency,
+                value,
+                previous.get(currency).huf_per_unit if currency in previous else None,
+            )
             row = db.scalar(
                 select(FxSnapshot).where(
                     FxSnapshot.rate_date == rate_date,
