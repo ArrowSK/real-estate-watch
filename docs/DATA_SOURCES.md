@@ -32,6 +32,18 @@ The bundled files under `app/countries/hu/data/` exist for first start and recov
 
 Some regional new-build quarters are blank in KSH because no publishable value is available. Real Estate Watch leaves those quarters missing instead of interpolating them.
 
+## KSH transaction counts
+
+Source: KSH STADAT table 18.2.2.15.
+
+`https://www.ksh.hu/stadat_files/lak/en/lak0053.html`
+
+The app collects the number of housing transactions made by private persons for the same quarterly geography and new/second-hand split. When a transaction count matches a stored price observation, it is attached as that observation's `sample_size` and shown on the market dashboard.
+
+The count table is supplementary. A published transaction count does not create a price observation when KSH has not published the corresponding mean price. This matters particularly for low-volume new-build regional data, where KSH may publish a count but withhold the price.
+
+The price and count sources have separate health records. A count-source failure therefore remains visible in Diagnostics without corrupting the price series.
+
 ## MNB exchange rates
 
 Source: Magyar Nemzeti Bank exchange-rate SOAP service.
