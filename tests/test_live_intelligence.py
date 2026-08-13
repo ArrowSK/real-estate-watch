@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app.config import get_settings
 from app.db import Base
 from app.models import (
     AskingMarketSnapshot,
@@ -11,8 +12,14 @@ from app.models import (
     MarketSnapshot,
     ObservedListing,
     ObservedListingAttribute,
+    ObservedListingPresence,
 )
-from app.services.duna_house import DH_SOURCE_KEY, rebuild_asking_aggregates
+from app.services.duna_house import (
+    DH_SOURCE_KEY,
+    parse_dh_listing,
+    rebuild_asking_aggregates,
+    update_presence_from_sitemap,
+)
 from app.services.live_intelligence import (
     live_signals,
     local_district_signal,
@@ -26,80 +33,158 @@ def _session():
     return sessionmaker(bind=engine)()
 
 
-def test_live_signals_reconcile_price_cuts_duration_features_and_postcodes():
+def test_live_signals_reconcile_price_cuts_duration_features_and_postcodes(monkeypatch):
+    monkeypatch.setenv("DH_MIN_AGGREGATE_SAMPLE", "1")
+    get_settings.cache_clear()
     now = datetime.now(timezone.utc)
-    with _session() as db:
-        listing = ObservedListing(
-            source_key=DH_SOURCE_KEY,
-            external_id="LK123456",
-            listing_url="https://dh.hu/ingatlan/LK123456",
-            area_code="BUDAPEST_06",
-            locality="Budapest 6. kerület",
-            postcode="1061",
-            property_type="apartment",
-            market_segment="second_hand",
-            rooms=2,
-            first_seen_at=now - timedelta(days=4),
-            last_seen_at=now,
-            active=True,
-            quality_state="usable",
-        )
-        db.add(listing)
-        db.flush()
-        db.add_all(
-            [
-                ListingSnapshot(
-                    listing_id=listing.id,
-                    snapshot_date=date.today() - timedelta(days=4),
-                    asking_price_huf=100_000_000,
-                    floor_area_m2=50,
-                    price_huf_m2=2_000_000,
-                ),
-                ListingSnapshot(
-                    listing_id=listing.id,
-                    snapshot_date=date.today(),
-                    asking_price_huf=95_000_000,
-                    floor_area_m2=50,
-                    price_huf_m2=1_900_000,
-                ),
-                ObservedListingAttribute(
-                    listing_id=listing.id,
-                    building_type="tégla",
-                    condition="jó állapotú",
-                    floor="2. emelet",
-                    lift="van",
-                    heating="gáz cirkó",
-                ),
-            ]
-        )
-        db.commit()
-
-        rebuild_asking_aggregates(db, discovery_count=100)
-        signals = live_signals(
-            db,
-            area_code="BUDAPEST_06",
-            property_type="apartment",
-            market_segment="second_hand",
-        )
-        assert signals.sample_size == 1
-        assert signals.price_cut_count == 1
-        assert signals.price_cut_share == 1
-        assert round(signals.median_price_cut_pct or 0, 1) == -5.0
-        assert signals.new_7d_count == 1
-        assert signals.median_observed_days is not None
-        assert 3.5 <= signals.median_observed_days <= 4.5
-        assert signals.attribute_listing_coverage_pct == 100
-        assert signals.attribute_field_coverage_pct == 50
-        assert signals.postcodes == (("1061", 1),)
-
-        postcode_aggregate = db.scalar(
-            select(AskingMarketSnapshot).where(
-                AskingMarketSnapshot.area_code == "POSTCODE_1061",
-                AskingMarketSnapshot.property_type == "apartment",
+    try:
+        with _session() as db:
+            listing = ObservedListing(
+                source_key=DH_SOURCE_KEY,
+                external_id="LK123456",
+                listing_url="https://dh.hu/ingatlan/LK123456",
+                area_code="BUDAPEST_06",
+                locality="Budapest 6. kerület",
+                postcode="1061",
+                property_type="apartment",
+                market_segment="second_hand",
+                rooms=2,
+                first_seen_at=now - timedelta(days=4),
+                last_seen_at=now,
+                active=True,
+                quality_state="usable",
             )
-        )
-        assert postcode_aggregate is not None
-        assert postcode_aggregate.median_huf_m2 == 1_900_000
+            db.add(listing)
+            db.flush()
+            db.add_all(
+                [
+                    ListingSnapshot(
+                        listing_id=listing.id,
+                        snapshot_date=date.today() - timedelta(days=4),
+                        asking_price_huf=100_000_000,
+                        floor_area_m2=50,
+                        price_huf_m2=2_000_000,
+                    ),
+                    ListingSnapshot(
+                        listing_id=listing.id,
+                        snapshot_date=date.today(),
+                        asking_price_huf=95_000_000,
+                        floor_area_m2=50,
+                        price_huf_m2=1_900_000,
+                    ),
+                    ObservedListingAttribute(
+                        listing_id=listing.id,
+                        building_type="tégla",
+                        condition="jó állapotú",
+                        floor="2. emelet",
+                        lift="van",
+                        heating="gáz cirkó",
+                    ),
+                ]
+            )
+            db.commit()
+
+            rebuild_asking_aggregates(db, discovery_count=100)
+            signals = live_signals(
+                db,
+                area_code="BUDAPEST_06",
+                property_type="apartment",
+                market_segment="second_hand",
+            )
+            assert signals.sample_size == 1
+            assert signals.price_cut_count == 1
+            assert signals.price_cut_share == 1
+            assert round(signals.median_price_cut_pct or 0, 1) == -5.0
+            assert signals.new_7d_count == 1
+            assert signals.median_observed_days is not None
+            assert 3.5 <= signals.median_observed_days <= 4.5
+            assert signals.attribute_listing_coverage_pct == 100
+            assert signals.attribute_field_coverage_pct == 50
+            assert signals.postcodes == (("1061", 1),)
+
+            postcode_aggregate = db.scalar(
+                select(AskingMarketSnapshot).where(
+                    AskingMarketSnapshot.area_code == "POSTCODE_1061",
+                    AskingMarketSnapshot.property_type == "apartment",
+                )
+            )
+            assert postcode_aggregate is not None
+            assert postcode_aggregate.median_huf_m2 == 1_900_000
+    finally:
+        get_settings.cache_clear()
+
+
+def test_sitemap_presence_requires_two_misses_and_recovers(monkeypatch):
+    monkeypatch.setenv("DH_INACTIVE_AFTER_MISSES", "2")
+    get_settings.cache_clear()
+    now = datetime.now(timezone.utc)
+    try:
+        with _session() as db:
+            listing = ObservedListing(
+                source_key=DH_SOURCE_KEY,
+                external_id="LK765432",
+                listing_url="https://dh.hu/ingatlan/LK765432",
+                area_code="BUDAPEST_06",
+                property_type="apartment",
+                market_segment="second_hand",
+                first_seen_at=now,
+                last_seen_at=now,
+                active=True,
+                quality_state="usable",
+            )
+            db.add(listing)
+            db.commit()
+
+            first = update_presence_from_sitemap(db, [listing], set(), now=now)
+            db.refresh(listing)
+            assert listing.active is True
+            assert first["pending_missing"] == 1
+
+            second = update_presence_from_sitemap(
+                db,
+                [listing],
+                set(),
+                now=now + timedelta(days=1),
+            )
+            db.refresh(listing)
+            assert listing.active is False
+            assert second["marked_inactive"] == 1
+
+            recovered = update_presence_from_sitemap(
+                db,
+                [listing],
+                {"https://dh.hu/ingatlan/LK765432"},
+                now=now + timedelta(days=2),
+            )
+            db.refresh(listing)
+            assert listing.active is True
+            assert recovered["recovered"] == 1
+            presence = db.get(ObservedListingPresence, listing.id)
+            assert presence is not None
+            assert presence.sitemap_miss_count == 0
+            assert presence.inactive_at is None
+    finally:
+        get_settings.cache_clear()
+
+
+def test_duna_parser_keeps_short_factual_attributes_only():
+    html = """
+    <html><head><title>LK123456 eladó lakás</title></head><body>
+      <div>1061 Budapest 6. kerület</div>
+      <div>95 000 000 Ft</div><div>50 m²</div><div>2 szoba</div>
+      <div>Épület szerkezete: tégla | Állapot: jó állapotú | Emelet: 2. emelet |</div>
+      <div>Lift: van | Fűtés: gáz cirkó | Energetikai besorolás: BB |</div>
+    </body></html>
+    """
+    facts = parse_dh_listing(html, "https://dh.hu/ingatlan/LK123456")
+    assert facts.external_id == "LK123456"
+    assert facts.area_code == "BUDAPEST_06"
+    assert facts.building_type == "tégla"
+    assert facts.condition == "jó állapotú"
+    assert facts.floor == "2. emelet"
+    assert facts.lift == "van"
+    assert facts.heating == "gáz cirkó"
+    assert facts.energy_rating == "BB"
 
 
 def test_local_detail_uses_same_year_local_factor_on_latest_second_hand_benchmark():
