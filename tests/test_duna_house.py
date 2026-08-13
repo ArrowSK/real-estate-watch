@@ -7,8 +7,10 @@ from app.services.duna_house import (
 
 
 ROBOTS = """User-agent: *
-Allow: /
-Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties
+    Allow: /
+
+    Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_content
+    Sitemap: https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties
 """
 
 SITEMAP = """<?xml version="1.0" encoding="UTF-8"?>
@@ -32,11 +34,12 @@ LISTING = """<!doctype html>
 </script></head><body><h1>Eladó lakás LK123456</h1></body></html>"""
 
 
-def test_default_sitemap_matches_reviewed_robots_contract():
+def test_default_sitemap_matches_reviewed_indented_robots_contract():
     settings = Settings()
     allowed, sitemaps = _robots_contract(ROBOTS, settings.dh_sitemap_url)
     assert allowed
     assert settings.dh_sitemap_url in sitemaps
+    assert len(sitemaps) == 2
 
 
 def test_parse_property_sitemap_normalizes_host_and_lastmod():
