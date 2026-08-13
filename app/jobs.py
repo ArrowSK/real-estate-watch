@@ -11,6 +11,7 @@ from app.services.health import run_self_checks
 from app.services.market import latest_market, refresh_ksh
 from app.services.notifications import send_notifications
 from app.services.self_heal import heal_reference_data
+from app.services.transaction_counts import refresh_ksh_transaction_counts
 
 
 def _tracked_hungary_series() -> list[tuple[str, str]]:
@@ -53,6 +54,7 @@ def run_daily_collection(db: Session) -> dict:
             for key in tracked
         }
         result["market"] = refresh_ksh(db)
+        result["transaction_counts"] = refresh_ksh_transaction_counts(db)
         after = {
             key: (row.period, row.price_huf_m2) if (row := latest_market(db, *key)) else None
             for key in tracked
@@ -76,7 +78,8 @@ def run_daily_collection(db: Session) -> dict:
             )
         result["fx"] = refresh_mnb_fx(db)
         result["checks"] = run_self_checks(db)
-        result["ok"] = bool(result["market"].get("ok") and result["fx"].get("ok"))
+        source_results = (result["market"], result["transaction_counts"], result["fx"])
+        result["ok"] = all(item.get("ok") for item in source_results)
         if not result["ok"]:
             result["source_notification"] = send_notifications(
                 db,
@@ -84,6 +87,7 @@ def run_daily_collection(db: Session) -> dict:
                 {
                     "event": "source_degraded",
                     "market": result["market"],
+                    "transaction_counts": result["transaction_counts"],
                     "fx": result["fx"],
                     "message": "A data source failed. Real Estate Watch kept the last known-good data.",
                 },
