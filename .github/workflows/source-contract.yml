@@ -40,42 +40,24 @@ jobs:
           import json
           import re
 
-          headers = {
-              'User-Agent': 'real-estate-watch/0.2',
-              'Accept': 'application/json',
-          }
+          headers = {'User-Agent': 'real-estate-watch/0.2', 'Accept': 'application/json'}
           url = 'https://www.ksh.hu/s/ingatlanadattar/inga-data.json'
           data = httpx.get(url, headers=headers, follow_redirects=True, timeout=60).json()
           print('rows=', len(data))
-          keys = sorted({key for row in data for key in row})
-          print('keys=', keys)
+          print('keys=', sorted({key for row in data for key in row}))
           print('levels=', collections.Counter(row.get('szint') for row in data))
           print('years=', min(row['ev'] for row in data), max(row['ev'] for row in data))
           budapest = [row for row in data if str(row.get('megye')) == '01']
           print('budapest_rows=', len(budapest))
           print('budapest_levels=', collections.Counter(row.get('szint') for row in budapest))
-          for level in sorted({row.get('szint') for row in budapest}, key=str):
-              sample = [row for row in budapest if row.get('szint') == level][:3]
-              print('LEVEL_SAMPLE', level, json.dumps(sample, ensure_ascii=False))
-          for name in ('Andrássy út', 'Agyagfejtő utca', 'Ady Endre út'):
-              sample = [row for row in budapest if str(row.get('kozter') or '').casefold() == name.casefold()][:5]
-              print('STREET_SAMPLE', name, json.dumps(sample, ensure_ascii=False))
-          for ter in ('10700', '04011'):
-              sample = [row for row in budapest if str(row.get('telaz')) == ter][:5]
-              print('TER_SAMPLE', ter, json.dumps(sample, ensure_ascii=False))
-
           js = httpx.get(
               'https://www.ksh.hu/s/ingatlanadattar/assets/teleplist.js',
               headers={'User-Agent': 'real-estate-watch/0.2'},
               follow_redirects=True,
               timeout=30,
           ).text
-          for needle in ('Budapest 06. kerület', 'Budapest 10. kerület', 'Budapest 19. kerület'):
-              pos = js.find(needle)
-              print('TELEP_CONTEXT', needle, js[max(0, pos-220):pos+280] if pos >= 0 else 'NOT_FOUND')
-          # Keep output compact: list only object-looking fragments containing Budapest district labels.
           fragments = re.findall(r'\{[^{}]{0,400}Budapest\s+\d{2}\.\s*kerület[^{}]{0,400}\}', js)
-          print('DISTRICT_FRAGMENTS', fragments[:25])
+          print('district_mapping_count=', len(fragments))
           PY
 
       - name: Check Duna House robots contract independently
@@ -96,6 +78,45 @@ jobs:
           print('can_fetch=', p.can_fetch(DH_USER_AGENT, 'https://dh.hu/elado-ingatlan/lakas-haz'))
           print('sitemaps=', p.site_maps())
           print('configured=', s.dh_sitemap_url)
+          PY
+
+      - name: Inspect Duna House property identifier shape
+        id: dh_page_shape
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import httpx
+          from bs4 import BeautifulSoup
+          from app.services.duna_house import DH_USER_AGENT, discover_dh_listings
+
+          entries = discover_dh_listings()
+          ranked = sorted(entries, key=lambda x: x.lastmod.isoformat() if x.lastmod else '', reverse=True)[:5]
+          print('sitemap_entries=', len(entries))
+          for index, entry in enumerate(ranked, 1):
+              response = httpx.get(entry.url, headers={'User-Agent': DH_USER_AGENT}, follow_redirects=True, timeout=30)
+              soup = BeautifulSoup(response.text, 'html.parser')
+              title = soup.title.get_text(' ', strip=True) if soup.title else ''
+              jsonld = []
+              for node in soup.find_all('script', attrs={'type':'application/ld+json'}):
+                  try:
+                      value = json.loads(node.string or '')
+                  except Exception:
+                      continue
+                  items = value if isinstance(value, list) else [value]
+                  for item in items:
+                      if isinstance(item, dict):
+                          jsonld.append({'type': item.get('@type'), 'keys': sorted(item.keys())})
+              identifier_tokens = sorted(set(re.findall(r'\b[A-Z]{1,5}[-_/]?[A-Z0-9-]{4,30}\b', f'{entry.url} {title}')))
+              canonical = soup.find('link', rel='canonical')
+              print('PAGE', index)
+              print(' sitemap_url=', entry.url)
+              print(' final_url=', response.url, 'status=', response.status_code)
+              print(' title=', title[:300])
+              print(' canonical=', canonical.get('href') if canonical else None)
+              print(' identifier_tokens=', identifier_tokens[:30])
+              print(' jsonld=', jsonld[:12])
           PY
 
       - name: Check live KSH price contract
@@ -128,6 +149,7 @@ jobs:
         env:
           KSH_SCHEMA: ${{ steps.ksh_schema.outcome }}
           DH_SHAPE: ${{ steps.dh_shape.outcome }}
+          DH_PAGE_SHAPE: ${{ steps.dh_page_shape.outcome }}
           KSH_PRICES: ${{ steps.ksh_prices.outcome }}
           KSH_COUNTS: ${{ steps.ksh_counts.outcome }}
           KSH_LOCAL: ${{ steps.ksh_local.outcome }}
@@ -138,6 +160,7 @@ jobs:
           printf '%-24s %s\n' \
             'KSH JSON schema' "$KSH_SCHEMA" \
             'Duna robots diagnostic' "$DH_SHAPE" \
+            'Duna page diagnostic' "$DH_PAGE_SHAPE" \
             'KSH quarterly prices' "$KSH_PRICES" \
             'KSH transaction counts' "$KSH_COUNTS" \
             'KSH granular' "$KSH_LOCAL" \
@@ -146,6 +169,7 @@ jobs:
             'Application self-check' "$SELF_CHECK"
           test "$KSH_SCHEMA" = success
           test "$DH_SHAPE" = success
+          test "$DH_PAGE_SHAPE" = success
           test "$KSH_PRICES" = success
           test "$KSH_COUNTS" = success
           test "$KSH_LOCAL" = success
