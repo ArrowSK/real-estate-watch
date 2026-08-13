@@ -13,9 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Fast-forward to current main
+        run: git pull --ff-only origin main
       - name: Apply reviewed narrow patch
         run: |
           python - <<'PY'
@@ -46,4 +50,4 @@ jobs:
           git add app/services/duna_house.py tests/test_duna_house.py
           git diff --cached --check
           git commit -m 'Handle indented Duna House sitemap declarations'
-          git push
+          git push origin main
