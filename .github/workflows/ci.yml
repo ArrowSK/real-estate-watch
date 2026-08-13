@@ -19,14 +19,31 @@ jobs:
       - run: pip install -e '.[dev]'
       - run: ruff check app tests
       - run: pytest -q
+      - run: python -m app.cli seed
+      - run: python -m app.cli self-check
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: docker compose config
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
+          load: true
           push: false
           tags: real-estate-watch:ci
+      - name: Smoke-test container health
+        run: |
+          docker run -d --name real-estate-watch-ci -p 8000:8000 real-estate-watch:ci
+          for i in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8000/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs real-estate-watch-ci
+          exit 1
+      - if: always()
+        run: docker rm -f real-estate-watch-ci || true
