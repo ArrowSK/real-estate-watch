@@ -16,7 +16,8 @@ The interface is bilingual. English is the default; Hungarian can be selected fr
 - General Hungarian property transfer-tax calculation under the NAV rule.
 - Docker and Railway-ready deployment.
 - Daily collection command and a low-overhead local scheduler.
-- Source diagnostics, readiness/liveness endpoints, last-known-good fallbacks and data sanity checks.
+- Optional notifications through a generic webhook, Telegram and SMTP email.
+- Source diagnostics, readiness/liveness endpoints, source-freshness checks, bounded retry, last-known-good fallbacks and data sanity checks.
 - English and Hungarian UI.
 
 ## What is deliberately not faked
@@ -124,13 +125,17 @@ Important variables:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | SQLite or PostgreSQL SQLAlchemy URL |
-| `APP_DEFAULT_LANGUAGE` | `en` or `hu` |
+| `APP_DEFAULT_LANGUAGE` | `en` or `hu`; also controls notification language |
 | `APP_TIMEZONE` | Local scheduler timezone; defaults to `Europe/Budapest` |
-| `SOURCE_STALE_HOURS` | Reserved staleness threshold for source policy |
+| `SOURCE_STALE_HOURS` | Marks an attempted source stale when its last successful refresh is older than this |
 | `SELF_HEAL_ENABLED` | Restores bundled reference data if the market table is empty |
-| `NOTIFY_WEBHOOK_URL` | Optional webhook for market-change and source-degradation notices |
+| `NOTIFY_WEBHOOK_URL` | Optional generic webhook |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional Telegram notification channel |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `NOTIFY_EMAIL_TO` | Optional STARTTLS email channel |
 | `MARKET_NOTIFY_CHANGE_PERCENT` | Notify when a refreshed tracked benchmark changes by at least this percentage; a new KSH quarter also notifies |
 | `ADMIN_KEY` | Optional key protecting the manual `/ops/refresh` endpoint |
+
+Any combination of notification channels may be configured. A failure in one channel does not stop the others. Bot tokens, SMTP passwords and credential-bearing webhook URLs belong only in deployment environment variables, never in the repository.
 
 If `ADMIN_KEY` is not configured, the web refresh endpoint is disabled. Scheduled CLI collection still works.
 
@@ -139,17 +144,18 @@ If `ADMIN_KEY` is not configured, the web refresh endpoint is disabled. Schedule
 The application is designed to fail conservatively.
 
 - Database operations use transactions. A failed collection is rolled back before source health is updated.
+- Clearly transient network errors and HTTP 408/425/429/5xx responses receive a small bounded retry with backoff before a source is marked degraded.
 - Market and FX values pass sanity ranges before they can replace a stored observation.
 - FX movements above 15% from the last stored rate are rejected rather than silently accepted.
 - The KSH parser supports a deliberately narrow set of table rows. If the table structure changes enough that those rows cannot be identified, the collector fails and keeps the previous data instead of guessing column meanings.
 - Daily jobs use a database job record to avoid overlapping runs. A lock left behind by a crashed job is marked abandoned after two hours.
-- A configured webhook receives a notice when a tracked KSH series moves past the configured threshold or advances to a new quarter, and when a live source degrades.
+- Configured webhook, Telegram and email channels receive a notice when a tracked KSH series moves past the configured threshold or advances to a new quarter, and when a live source degrades.
 - If the market table is empty, the self-healer restores the bundled, source-attributed KSH reference data.
 - `/health/live` checks that the process is alive.
 - `/health/ready` checks the database and minimum reference data. Optional live sources may be degraded without taking the whole site offline.
-- `/diagnostics` shows source failures and the last successful refresh.
+- `/diagnostics` shows source failures, freshness and the last successful refresh.
 
-"Self-healing" here means restoring known-safe local reference state and continuing from last known-good data. It does **not** mean modifying application code automatically or accepting unverified external values.
+"Self-healing" here means retrying transient failures, restoring known-safe local reference state and continuing from last known-good data. It does **not** mean modifying application code automatically or accepting unverified external values.
 
 ## Mortgage calculations
 
