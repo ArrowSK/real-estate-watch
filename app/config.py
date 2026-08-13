@@ -31,7 +31,20 @@ class Settings(BaseSettings):
 
     ksh_market_url: str = "https://www.ksh.hu/stadat_files/lak/en/lak0052.html"
     ksh_transactions_url: str = "https://www.ksh.hu/stadat_files/lak/en/lak0053.html"
+    ksh_local_url: str = "https://www.ksh.hu/s/ingatlanadattar/adattar"
+    ksh_local_refresh_hours: int = 168
     mnb_fx_url: str = "https://www.mnb.hu/arfolyamok"
+
+    # Experimental live asking-market source. The collector stores factual fields only and
+    # stops when its access-policy guard detects a material change or the review expires.
+    dh_enabled: bool = True
+    dh_robots_url: str = "https://dh.hu/robots.txt"
+    dh_legal_url: str = "https://dh.hu/jogi-nyilatkozat"
+    dh_sitemap_url: str = "https://newdhapi01.dh.hu/api/getFileItem/sitemap_properties"
+    dh_max_listings_per_run: int = 250
+    dh_request_delay_seconds: float = 0.20
+    dh_min_aggregate_sample: int = 12
+    dh_policy_review_max_age_days: int = 90
 
     def sqlalchemy_url(self) -> str:
         url = self.database_url.strip()
