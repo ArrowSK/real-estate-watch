@@ -31,6 +31,26 @@ jobs:
         run: python -m app.cli collect-market
       - name: Check live KSH transaction-count contract
         run: python -m app.cli collect-counts
+      - name: Diagnose granular KSH response shape
+        run: |
+          python - <<'PY'
+          import httpx
+          from bs4 import BeautifulSoup
+          url = 'https://www.ksh.hu/s/ingatlanadattar/adattar?ter=01&year=2024'
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36',
+              'Accept-Language': 'hu-HU,hu;q=0.9,en;q=0.5',
+          }
+          response = httpx.get(url, headers=headers, follow_redirects=True, timeout=20)
+          soup = BeautifulSoup(response.text, 'html.parser')
+          tables = soup.find_all('table')
+          print('status=', response.status_code, 'url=', response.url, 'bytes=', len(response.text), 'tables=', len(tables))
+          print('title=', soup.title.get_text(' ', strip=True) if soup.title else None)
+          print('scripts=', [x.get('src') for x in soup.find_all('script') if x.get('src')][-20:])
+          print('forms=', [(x.get('action'), x.get('method')) for x in soup.find_all('form')])
+          print('table_row_cell_counts=', [[len(r.find_all(['th','td'])) for r in t.find_all('tr')[:12]] for t in tables[:5]])
+          print('data_markers=', 'Budapest 06. kerület' in response.text, '1&nbsp;132' in response.text, '1132' in response.text)
+          PY
       - name: Check granular KSH district and street contract
         run: python -m app.cli collect-local
       # Production FX uses MNB's public latest-rates page. The older documented SOAP route
