@@ -1,8 +1,16 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import FxSnapshot, MarketSnapshot, SourceHealth
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def run_self_checks(db: Session) -> list[dict]:
@@ -29,13 +37,32 @@ def run_self_checks(db: Session) -> list[dict]:
     })
 
     settings = get_settings()
-    degraded = list(db.scalars(select(SourceHealth).where(SourceHealth.state == "degraded")))
+    sources = list(db.scalars(select(SourceHealth).order_by(SourceHealth.source_key)))
+    degraded = [source for source in sources if source.state == "degraded"]
     checks.append({
         "key": "sources",
         "ok": not degraded,
         "detail": "All attempted sources healthy" if not degraded else f"{len(degraded)} source(s) degraded; last known-good data retained",
         "soft": True,
     })
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.source_stale_hours)
+    stale = [
+        source.source_key
+        for source in sources
+        if source.last_success_at is not None and (_as_utc(source.last_success_at) or cutoff) < cutoff
+    ]
+    checks.append({
+        "key": "source_freshness",
+        "ok": not stale,
+        "detail": (
+            f"No successful source refresh is older than {settings.source_stale_hours} hours"
+            if not stale
+            else f"Stale source(s): {', '.join(stale)}"
+        ),
+        "soft": True,
+    })
+
     checks.append({
         "key": "self_heal",
         "ok": settings.self_heal_enabled,
