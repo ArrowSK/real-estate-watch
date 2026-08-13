@@ -59,8 +59,12 @@ def _quarter_end(year: int, quarter: int) -> date:
 
 
 def _seed_rows() -> list[dict]:
-    path = files("app.countries.hu.data").joinpath("market_seed.json")
-    return json.loads(path.read_text(encoding="utf-8"))
+    data_package = files("app.countries.hu.data")
+    rows: list[dict] = []
+    for filename in ("market_seed.json", "regional_seed.json"):
+        path = data_package.joinpath(filename)
+        rows.extend(json.loads(path.read_text(encoding="utf-8")))
+    return rows
 
 
 def validate_market_value(price_huf_m2: float) -> None:
