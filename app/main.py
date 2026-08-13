@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,6 +30,15 @@ settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.app_log_level.upper(), logging.INFO))
 logger = logging.getLogger("real_estate_watch")
 BASE_DIR = Path(__file__).resolve().parent
+
+HU_ERROR_TRANSLATIONS = {
+    "Floor area is outside the supported range": "Az alapterület a támogatott tartományon kívül esik.",
+    "Baseline must be positive": "Az alap négyzetméterárnak pozitívnak kell lennie.",
+    "Purchase price must be positive": "A vételárnak pozitívnak kell lennie.",
+    "Down payment must be between zero and the purchase price": "Az önerőnek nulla és a vételár közé kell esnie.",
+    "Interest rate must be between 0% and 30%": "A kamatnak 0% és 30% közé kell esnie.",
+    "Term must be between 1 and 40 years": "A futamidőnek 1 és 40 év közé kell esnie.",
+}
 
 
 @asynccontextmanager
@@ -60,6 +70,13 @@ def fmt_number(value: float | int | None, digits: int = 0) -> str:
     return f"{value:,.{digits}f}"
 
 
+def localized_error(language: str, error: Exception | str) -> str:
+    message = str(error)
+    if language == "hu":
+        return HU_ERROR_TRANSLATIONS.get(message, message)
+    return message
+
+
 def template_context(request: Request, language: str, **extra) -> dict:
     return {
         "request": request,
@@ -69,6 +86,15 @@ def template_context(request: Request, language: str, **extra) -> dict:
         "fmt": fmt_number,
         **extra,
     }
+
+
+def hungary_selection(area: str, market: str) -> tuple[HungaryProvider, list[dict[str, str]], str, str]:
+    provider = HungaryProvider()
+    areas = provider.areas()
+    valid_areas = {item["code"] for item in areas}
+    selected_area = area if area in valid_areas else "BUDAPEST"
+    selected_market = market if market in {"second_hand", "new"} else "second_hand"
+    return provider, areas, selected_area, selected_market
 
 
 @app.get("/language/{language}")
@@ -84,22 +110,23 @@ def market_page(
     request: Request,
     area: str = Query("BUDAPEST"),
     market: str = Query("second_hand"),
+    range: str = Query("6m"),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
-    provider = HungaryProvider()
-    areas = provider.areas()
-    valid_areas = {x["code"] for x in areas}
-    area = area if area in valid_areas else "BUDAPEST"
-    market = market if market in {"second_hand", "new"} else "second_hand"
+    _, areas, area, market = hungary_selection(area, market)
+    selected_range = range if range in {"6m", "1y", "all"} else "6m"
     series = market_series(db, area, market)
     latest = series[-1] if series else None
     fx = latest_fx(db)
     converted = converted_amounts(latest.price_huf_m2, fx) if latest else {}
-    chart = [
-        {"period": row.period, "price": row.price_huf_m2}
-        for row in series[-10:]
-    ]
+    if selected_range == "6m":
+        chart_rows = series[-3:]
+    elif selected_range == "1y":
+        chart_rows = series[-5:]
+    else:
+        chart_rows = series
+    chart = [{"period": row.period, "price": row.price_huf_m2} for row in chart_rows]
     return templates.TemplateResponse(
         request,
         "market.html",
@@ -109,6 +136,7 @@ def market_page(
             areas=areas,
             selected_area=area,
             selected_market=market,
+            selected_range=selected_range,
             latest=latest,
             converted=converted,
             fx=fx,
@@ -118,9 +146,15 @@ def market_page(
 
 
 @app.get("/valuation", response_class=HTMLResponse)
-def valuation_page(request: Request, db: Session = Depends(get_db)):
+def valuation_page(
+    request: Request,
+    area: str = Query("BUDAPEST"),
+    market: str = Query("second_hand"),
+    db: Session = Depends(get_db),
+):
     language = language_from_request(request)
-    latest = latest_market(db, "BUDAPEST", "second_hand")
+    _, areas, area, market = hungary_selection(area, market)
+    baseline_row = latest_market(db, area, market)
     return templates.TemplateResponse(
         request,
         "valuation.html",
@@ -128,7 +162,10 @@ def valuation_page(request: Request, db: Session = Depends(get_db)):
             request,
             language,
             result=None,
-            baseline=latest.price_huf_m2 if latest else 1_200_000,
+            baseline_row=baseline_row,
+            areas=areas,
+            selected_area=area,
+            selected_market=market,
             factors=DEFAULT_ADJUSTMENTS,
             fx=latest_fx(db),
         ),
@@ -138,17 +175,30 @@ def valuation_page(request: Request, db: Session = Depends(get_db)):
 @app.post("/valuation", response_class=HTMLResponse)
 def valuation_calculate(
     request: Request,
+    area: str = Form("BUDAPEST"),
+    market: str = Form("second_hand"),
     floor_area: float = Form(...),
-    baseline: float = Form(...),
     factors: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     language = language_from_request(request)
+    _, areas, area, market = hungary_selection(area, market)
+    baseline_row = latest_market(db, area, market)
     try:
-        result = value_property(floor_area_m2=floor_area, baseline_huf_m2=baseline, factors=factors)
+        if baseline_row is None:
+            raise ValueError(
+                "Nincs elérhető piaci referencia ehhez a választáshoz."
+                if language == "hu"
+                else "No market benchmark is available for this selection."
+            )
+        result = value_property(
+            floor_area_m2=floor_area,
+            baseline_huf_m2=baseline_row.price_huf_m2,
+            factors=factors,
+        )
         error = None
     except ValueError as exc:
-        result, error = None, str(exc)
+        result, error = None, localized_error(language, exc)
     fx = latest_fx(db)
     conversions = converted_amounts(result.estimated_value_huf, fx) if result else {}
     return templates.TemplateResponse(
@@ -159,9 +209,12 @@ def valuation_calculate(
             language,
             result=result,
             error=error,
-            baseline=baseline,
+            baseline_row=baseline_row,
             floor_area=floor_area,
             selected_factors=factors,
+            areas=areas,
+            selected_area=area,
+            selected_market=market,
             factors=DEFAULT_ADJUSTMENTS,
             fx=fx,
             conversions=conversions,
@@ -207,7 +260,7 @@ def mortgage_calculate(
         )
         error = None
     except ValueError as exc:
-        result, error = None, str(exc)
+        result, error = None, localized_error(language, exc)
     return templates.TemplateResponse(
         request,
         "mortgage.html",
@@ -251,7 +304,10 @@ def health_live():
 @app.get("/health/ready")
 def health_ready(db: Session = Depends(get_db)):
     ready, checks = readiness(db)
-    return JSONResponse({"status": "ok" if ready else "not_ready", "checks": checks}, status_code=200 if ready else 503)
+    return JSONResponse(
+        {"status": "ok" if ready else "not_ready", "checks": checks},
+        status_code=200 if ready else 503,
+    )
 
 
 @app.get("/api/market")
@@ -274,6 +330,7 @@ def market_api(
                 "observation_date": x.observation_date,
                 "metric": x.metric,
                 "price_huf_m2": x.price_huf_m2,
+                "sample_size": x.sample_size,
                 "source": x.source_key,
                 "source_url": x.source_url,
             }
@@ -291,14 +348,14 @@ def health_api(db: Session = Depends(get_db)):
         "checks": checks,
         "sources": [
             {
-                "source": s.source_key,
-                "state": s.state,
-                "last_success": s.last_success_at,
-                "last_attempt": s.last_attempt_at,
-                "failures": s.consecutive_failures,
-                "last_error": s.last_error,
+                "source": source.source_key,
+                "state": source.state,
+                "last_success": source.last_success_at,
+                "last_attempt": source.last_attempt_at,
+                "failures": source.consecutive_failures,
+                "last_error": source.last_error,
             }
-            for s in sources
+            for source in sources
         ],
     }
 
@@ -310,6 +367,6 @@ def operations_refresh(
 ):
     if not settings.admin_key:
         raise HTTPException(status_code=503, detail="ADMIN_KEY is not configured")
-    if x_admin_key != settings.admin_key:
+    if not secrets.compare_digest(x_admin_key or "", settings.admin_key):
         raise HTTPException(status_code=403, detail="Invalid admin key")
     return run_daily_collection(db)
