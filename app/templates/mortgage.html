@@ -1,14 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ t.mortgage }} · {{ t.app_name }}{% endblock %}
 {% block content %}
-<section class="hero compact">
-  <p class="eyebrow">Hungary / Magyarország</p>
-  <h1>{{ t.mortgage_title }}</h1>
-  <p class="muted">{{ t.mortgage_source_line }}</p>
+<section class="hero mortgage-hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Hungary / Magyarország · MNB + NAV</p>
+    <h1>{{ t.mortgage_title }}</h1>
+    <p class="hero-intro">{{ t.mortgage_source_line }}</p>
+  </div>
+  <div class="formula-stamp" aria-hidden="true"><span>PAYMENT</span><b>+</b><span>LIMITS</span><b>+</b><span>STRESS</span></div>
 </section>
 
 <div class="two-column mortgage-layout">
-  <form class="card form-card" method="post">
+  <form class="ledger-card form-card" method="post">
+    <div class="card-index">INPUT</div>
+    <p class="label icon-label"><svg class="icon"><use href="/static/icons.svg#mortgage"></use></svg>{{ t.mortgage }}</p>
     <label>{{ t.purchase_price }}
       <input type="number" name="purchase_price" min="1000000" step="100000" required value="{{ values.purchase_price|default(80000000) }}">
     </label>
@@ -52,7 +57,8 @@
   <div>
     {% if error %}<div class="notice warning"><p>{{ error }}</p></div>{% endif %}
     {% if result %}
-    <section class="card result-card">
+    <section class="ledger-card result-card valuation-total">
+      <div class="card-index">PAYMENT</div>
       <p class="label">{{ t.monthly_payment }}</p>
       <p class="metric">{{ fmt(result.monthly_payment_huf, 0) }} <span>HUF</span></p>
       <div class="result-list">
@@ -63,7 +69,8 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="ledger-card">
+      <div class="card-index">MNB</div>
       <h2>{{ t.regulatory_result }}</h2>
       <p class="status-line {{ 'ok' if result.debt_brake.passes else 'bad' }}">{{ t.passes if result.debt_brake.passes else t.fails }}</p>
       <div class="result-list">
@@ -72,8 +79,9 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>{{ t.stress }}</h2>
+    <section class="ledger-card">
+      <div class="card-index">STRESS</div>
+      <h2><svg class="icon"><use href="/static/icons.svg#trend"></use></svg> {{ t.stress }}</h2>
       <div class="result-list">
         {% for item in result.stress %}
         <div><span>{{ "%.2f"|format(item.rate_percent) }}%</span><strong>{{ fmt(item.monthly_payment_huf, 0) }} HUF/{{ t.per_month }}</strong></div>
@@ -81,13 +89,17 @@
       </div>
     </section>
     {% else %}
-    <section class="card empty-state"><p class="muted">{{ t.not_bank_offer }}</p></section>
+    <section class="ledger-card empty-state">
+      <svg class="empty-icon"><use href="/static/icons.svg#mortgage"></use></svg>
+      <p class="muted">{{ t.not_bank_offer }}</p>
+    </section>
     {% endif %}
   </div>
 </div>
 
-<section class="notice">
-  <p>{{ t.not_bank_offer }}</p>
-  <p class="small">{{ t.cash_note }}</p>
+<section class="evidence-grid">
+  <article class="evidence-note"><span class="evidence-number">01</span><div><h3>MNB</h3><p>{{ t.not_bank_offer }}</p></div></article>
+  <article class="evidence-note"><span class="evidence-number">02</span><div><h3>NAV</h3><p>{{ t.cash_note }}</p></div></article>
+  <article class="evidence-note"><span class="evidence-number">03</span><div><h3>{{ t.stress }}</h3><p>{{ '+1 / +2 / +3 percentage points' if lang == 'en' else '+1 / +2 / +3 százalékpont' }}</p></div></article>
 </section>
 {% endblock %}
