@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}{{ t.app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  <script defer src="{{ url_for('static', path='app.js') }}"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="/">
+        <span class="brand-mark">RE</span>
+        <span>
+          <strong>{{ t.app_name }}</strong>
+          <small>{{ t.tagline }}</small>
+        </span>
+      </a>
+      <a class="language" href="/language/{{ 'hu' if lang == 'en' else 'en' }}?next={{ request.url.path }}">{{ t.language }}</a>
+    </div>
+  </header>
+
+  <nav class="top-nav">
+    <div class="wrap nav-row">
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">{{ t.market }}</a>
+      <a href="/valuation" class="{% if request.url.path == '/valuation' %}active{% endif %}">{{ t.valuation }}</a>
+      <a href="/mortgage" class="{% if request.url.path == '/mortgage' %}active{% endif %}">{{ t.mortgage }}</a>
+      <a href="/diagnostics" class="{% if request.url.path == '/diagnostics' %}active{% endif %}">{{ t.diagnostics }}</a>
+    </div>
+  </nav>
+
+  <main class="wrap main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-row">
+      <span>Real Estate Watch v{{ version }}</span>
+      <span>{{ t.footer_country }}</span>
+    </div>
+  </footer>
+</body>
+</html>
