@@ -19,13 +19,30 @@ def run_self_checks(db: Session) -> list[dict]:
         db.execute(text("SELECT 1"))
         checks.append({"key": "database", "ok": True, "detail": "Database query succeeded"})
     except Exception as exc:
-        return [{"key": "database", "ok": False, "detail": str(exc)}]
+        # Health endpoints are public in many deployments. Do not expose connection details.
+        return [
+            {
+                "key": "database",
+                "ok": False,
+                "detail": f"Database check failed: {type(exc).__name__}",
+            }
+        ]
 
     market_count = db.scalar(select(func.count()).select_from(MarketSnapshot)) or 0
     checks.append({
         "key": "market_data",
         "ok": market_count > 0,
         "detail": f"{market_count} market observations stored",
+    })
+
+    sample_count = db.scalar(
+        select(func.count()).select_from(MarketSnapshot).where(MarketSnapshot.sample_size.is_not(None))
+    ) or 0
+    checks.append({
+        "key": "transaction_counts",
+        "ok": sample_count > 0,
+        "detail": f"{sample_count} market observations have an official transaction count",
+        "soft": True,
     })
 
     fx_count = db.scalar(select(func.count()).select_from(FxSnapshot)) or 0
@@ -74,5 +91,5 @@ def run_self_checks(db: Session) -> list[dict]:
 
 def readiness(db: Session) -> tuple[bool, list[dict]]:
     checks = run_self_checks(db)
-    hard_failures = [c for c in checks if not c["ok"] and not c.get("soft")]
+    hard_failures = [check for check in checks if not check["ok"] and not check.get("soft")]
     return not hard_failures, checks
