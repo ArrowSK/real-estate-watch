@@ -97,9 +97,12 @@ def _robots_contract(robots_text: str, sitemap_url: str) -> tuple[bool, list[str
     parser = robotparser.RobotFileParser()
     parser.parse(robots_text.splitlines())
     allowed = parser.can_fetch(DH_USER_AGENT, "https://dh.hu/elado-ingatlan/lakas-haz")
+    # robots.txt permits optional whitespace before directives. Duna House currently indents
+    # its Sitemap lines, so strip each line before inspecting the directive name.
+    normalized_lines = [line.strip() for line in robots_text.splitlines()]
     sitemaps = [
         line.split(":", 1)[1].strip()
-        for line in robots_text.splitlines()
+        for line in normalized_lines
         if line.lower().startswith("sitemap:")
     ]
     normalized = {canonical_url(item) for item in sitemaps}
@@ -503,11 +506,7 @@ def rebuild_asking_aggregates(db: Session, discovery_count: int | None = None) -
     )
     latest, previous = _latest_snapshots(db)
     source_active_count = len([item for item in listings if item.id in latest])
-    coverage = (
-        source_active_count / discovery_count
-        if discovery_count and discovery_count > 0
-        else None
-    )
+    coverage = source_active_count / discovery_count if discovery_count and discovery_count > 0 else None
 
     buckets: dict[tuple[str, str, str], list[tuple[ObservedListing, ListingSnapshot]]] = {}
     for item in listings:
@@ -590,9 +589,7 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
     try:
         entries = discover_dh_listings()
         discovered_urls = {entry.url for entry in entries}
-        existing = list(
-            db.scalars(select(ObservedListing).where(ObservedListing.source_key == DH_SOURCE_KEY))
-        )
+        existing = list(db.scalars(select(ObservedListing).where(ObservedListing.source_key == DH_SOURCE_KEY)))
         by_url = {canonical_url(item.listing_url): item for item in existing}
 
         removed = 0
@@ -606,9 +603,7 @@ def collect_dh(db: Session, *, limit: int | None = None) -> dict:
             item = by_url.get(entry.url)
             if item is None:
                 return (0, -(entry.lastmod.timestamp() if entry.lastmod else 0))
-            if entry.lastmod and (
-                item.source_lastmod_at is None or entry.lastmod > item.source_lastmod_at
-            ):
+            if entry.lastmod and (item.source_lastmod_at is None or entry.lastmod > item.source_lastmod_at):
                 return (1, -entry.lastmod.timestamp())
             return (2, item.last_seen_at.timestamp())
 
